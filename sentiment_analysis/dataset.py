@@ -20,7 +20,7 @@ UNK_ID = 3
 def tokenizer(sentence):
   words = []
   sentence = DUMMY.sub('', sentence)
-  for split_sen in sentence.lower().strip().split():
+  for split_sen in sentence.split():
     words.extend(WORD_SPLIT.split(split_sen))
   return [word for word in words if word]
 
@@ -28,13 +28,14 @@ def form_vocab_mapping(max_size):
   vocab = {}
   data = []
   counter = 0
-  f = open('corpus/SAD.csv', 'r')
-  for i, line in enumerate(csv.reader(f)):
+  f = open('data/source_train', 'r')
+  for i, line in f:
     counter += 1
     if counter % 100000 == 0:
       print("  Processing to line %s" % counter)
 
-    tokens = tokenizer(line[3])
+    line = line.strip().split(' +++$+++ ')
+    tokens = tokenizer(line[1])
     for w in tokens:
       word = DIGIT_RE.sub("0", w)
       if word in vocab:
@@ -46,7 +47,7 @@ def form_vocab_mapping(max_size):
   if len(vocab_list) > max_size:
     vocab_list = vocab_list[:max_size]
 
-  with open('corpus/mapping', 'w') as o:
+  with open('data/mapping', 'w') as o:
     for w in vocab_list:
       o.write(w + '\n')
 
@@ -69,12 +70,13 @@ def file_to_token(file_path, vocab_map):
   with open(file_path, 'r') as input_file:
     with open(output_path, 'w') as output_file:
       counter = 0
-      for line in csv.reader(input_file):
+      for line in input_file:
         counter += 1
+        line = line.strip().split(' +++$+++ ')
         if counter % 100000 == 0:
           print('  Tokenizing line %s' % counter)
-        token_ids = convert_to_token(line[3], vocab_map)
-        output_file.write(line[1] + ',' + " ".join([str(tok) for tok in token_ids]) + '\n')
+        token_ids = convert_to_token(line[1], vocab_map)
+        output_file.write(line[0] + ' +++$+++ ' + " ".join([str(tok) for tok in token_ids]) + '\n')
 
 def read_data(path):
   data = []
@@ -84,8 +86,8 @@ def read_data(path):
       counter += 1
       if counter % 100000 == 0:
         print("  Reading data line %s" % counter)
-      data_ids = [int(x) for x in line.split(',')[1].split()]
-      data.append((int(line.split(',')[0]), data_ids))
+      data_ids = [int(x) for x in line.split(' +++$+++ ')[1].split()]
+      data.append((int(line.split(' +++$+++ ')[0]), data_ids))
 
   return data
 
@@ -96,3 +98,4 @@ if __name__ == '__main__':
   #d = read_data('corpus/SAD.csv.token')
   #print(d[0])]
   pass
+

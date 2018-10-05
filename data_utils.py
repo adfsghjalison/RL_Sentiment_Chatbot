@@ -4,9 +4,15 @@ from __future__ import division
 import re
 import sys
 #import nltk
+from flags import buckets,split_ratio,SEED,replace_words,src_vocab_size
+import jieba
+import opencc
+import numpy as np
 
 import tensorflow as tf
 from tensorflow.python.platform import gfile
+
+import subprocess
 
 WORD_SPLIT = re.compile(b"([.,!?\"':;)(])")
 DIGIT_RE = re.compile(br"\d")
@@ -34,44 +40,56 @@ def tokenizer(sentence):
 
 # Form vocab map (vocab to index) according to maxsize
 # Temporary combine source and target vocabulary map together
-def form_vocab_mapping(filename_1, filename_2, max_size, nltk_tokenizer):
+# mode:[same|diff], to decide source and target share the same mapping or not
+def form_vocab_mapping(filename_1, filename_2, max_size_1, max_size_2, nltk_tokenizer=None, mode='diff'):
   
-  output_path = filename_1 + '.' + str(max_size) + '.mapping'
-  
-  if gfile.Exists(output_path):
+  output_path = filename_1 + '.' + str(max_size_1) + '.mapping' 
+  output_path2 = filename_2 + '.' + str(max_size_2) + '.mapping' 
+  max_sizes = (max_size_1,max_size_2)
+  if gfile.Exists(output_path) and gfile.Exists(output_path2):
     print('Map file has already been formed!')
   else:
     print('Forming mapping file according to %s and %s' % (filename_1, filename_2))  
-    print('Max vocabulary size : %s' % max_size)
+    print('Source max vocabulary size : %s' % max_size_1)
+    print('Target max vocabulary size : %s' % max_size_2)
 
     vocab = {}
-    with gfile.GFile(filename_1, mode = 'rb') as f_1:
-      with gfile.GFile(filename_2, mode = 'rb') as f_2:
-        f = [f_1, f_2]
-        counter = 0
-        for i, fil in enumerate(f):
-          print('Processing file %s' % i)
-          for line in fil:
-            counter += 1
-            if counter % 100000 == 0:
-              print("  Processing to line %s" % counter)
+    with gfile.GFile(filename_1, mode = 'rb') as f_1, gfile.GFile(filename_2, mode = 'rb') as f_2:
+      f = [f_1, f_2]
+      counter = 0
+      for i, fil in enumerate(f):
+        print('Processing file %s' % i)
+        for line in fil:
+          counter += 1
+          if counter % 100000 == 0:
+            print("  Processing to line %s" % counter)
 
-            line = tf.compat.as_bytes(line) 
-            tokens = nltk.word_tokenize(line) if nltk_tokenizer else tokenizer(line)
-            for w in tokens:
-              word = DIGIT_RE.sub(b"0", w)
-              if word in vocab:
-                vocab[word] += 1
-              else:
-                vocab[word] = 1
+          line = tf.compat.as_bytes(line) 
+          tokens = nltk.word_tokenize(line) if nltk_tokenizer else tokenizer(line)
+          for w in tokens:
+            #word = DIGIT_RE.sub(b"0", w)
+            word = w
+            if word in vocab:
+              vocab[word] += 1
+            else:
+              vocab[word] = 1
+        if mode == 'diff':
+          output_path = fil.name + '.' + str(max_sizes[i]) + '.mapping' 
+          write_mapping(vocab,max_sizes[i],output_path)
+          vocab = {}
       
-        vocab_list = _START_VOCAB + sorted(vocab, key = vocab.get, reverse = True)
-        if len(vocab_list) > max_size:
-          vocab_list = vocab_list[:max_size]
+      if mode == 'same': 
+        write_mapping(vocab,max_sizes[0],output_path)
+        subprocess.run("ln %s %s"%(output_path,output_path2),shell=True)
 
-        with gfile.GFile(output_path, 'wb') as vocab_file:
-          for w in vocab_list:
-            vocab_file.write(w + b'\n')
+def write_mapping(vocab,max_size,output_path):
+  vocab_list = _START_VOCAB + sorted(vocab, key = vocab.get, reverse = True)
+  if len(vocab_list) > max_size:
+    vocab_list = vocab_list[:max_size]
+
+  with gfile.GFile(output_path, 'wb') as vocab_file:
+    for w in vocab_list:
+      vocab_file.write(w + b'\n')
 
 # Read mapping file from map_path
 # Return mapping dictionary
@@ -97,7 +115,8 @@ def convert_to_token(sentence, vocab_map, nltk_tokenizer):
   else:
     words = tokenizer(sentence)  
   
-  return [vocab_map.get(DIGIT_RE.sub(b"0", w), UNK_ID) for w in words]
+  #return [vocab_map.get(DIGIT_RE.sub(b"0", w), UNK_ID) for w in words]
+  return [vocab_map.get(w, UNK_ID) for w in words]
 
 def file_to_token(file_path, vocab_map, nltk_tokenizer):
   output_path = file_path + ".token"
@@ -117,13 +136,20 @@ def file_to_token(file_path, vocab_map, nltk_tokenizer):
 
           output_file.write(" ".join([str(tok) for tok in token_ids]) + '\n')
 
-def prepare_whole_data(input_path_1, input_path_2, max_size, nltk_tokenizer = False):
-  form_vocab_mapping(input_path_1, input_path_2, max_size, nltk_tokenizer)
-  map_path = input_path_1 + '.' + str(max_size) + '.mapping'  
-  vocab_map, _ = read_map(map_path)
-  file_to_token(input_path_1, vocab_map, nltk_tokenizer)
-  file_to_token(input_path_2, vocab_map, nltk_tokenizer)
+def prepare_whole_data(input_path_1, input_path_2, max_size_1, max_size_2, nltk_tokenizer = False, skip_to_token = False, mode='diff'):
+  form_vocab_mapping(input_path_1, input_path_2, max_size_1, max_size_2, nltk_tokenizer, mode)
 
+  map_src_path = input_path_1 + '.' + str(max_size_1) + '.mapping'  
+  map_trg_path = input_path_2 + '.' + str(max_size_2) + '.mapping'  
+  vocab_map_src , _ = read_map(map_src_path)
+  vocab_map_trg , _ = read_map(map_trg_path)
+  files = {input_path_1+'_train': vocab_map_src,
+           input_path_1+'_val': vocab_map_src,
+           input_path_2+'_train': vocab_map_trg,
+           input_path_2+'_val': vocab_map_trg}
+  if not skip_to_token:
+    for f,vocab_map in files.items():
+      file_to_token(f , vocab_map, nltk_tokenizer)
 
 def read_data(source_path, target_path, bucket):
 
@@ -133,20 +159,27 @@ def read_data(source_path, target_path, bucket):
       
       source, target = source_file.readline(), target_file.readline()
       counter = 0     
- 
       while source and target:
         counter += 1
         if counter % 100000 == 0:
           print("  reading data line %d" % counter)
+          #print('source: ',source, 'target: ',target)
+          #print('bucket: ',bucket)
+ 
           sys.stdout.flush()
         source_ids = [int(x) for x in source.split()]
         target_ids = [int(x) for x in target.split()]
         target_ids.append(EOS_ID)
 
         for bucket_id, (source_size, target_size) in enumerate(bucket):
+          #if counter % 100000 == 0:
+          #    print('bucket_id, (source_size, target_size): ',bucket_id, (source_size, target_size))
+          #    print('len(source_ids): ',len(source_ids),
+          #          ' len(target_ids): ',len(target_ids))
           if len(source_ids) < source_size and len(target_ids) < target_size:
             data_set[bucket_id].append((source_ids, target_ids))
             break
+          #if bucket_id == 3: print('too long=======>',counter)
 
         source, target = source_file.readline(), target_file.readline()
 
@@ -175,8 +208,85 @@ def read_token_data(file_path):
   else:
     raise ValueError("Can not find token file %s" % token_path)
 
+def sub_words(word):
+    for rep in replace_words.keys():
+        if rep in word:
+            word = re.sub(rep,replace_words[rep],word)
+    return word
+
+def word_seg(input_file,output_file,mode):
+    if mode == 'word':
+        jieba.load_userdict('dict.txt')
+    
+    with open(output_file,'w') as f, open(input_file,'r') as fi:
+        for l in fi:
+            # remove all whitespace characters
+            l = ''.join(l.split())
+            if mode == 'char':
+                f.write(' '.join(list(l)) + '\n')
+            else:
+                seg = jieba.cut(l, cut_all=False)
+                f.write(' '.join(seg) + '\n')
+
+def split_train_val(source,target,buckets=buckets):
+    data = [[] for i in range(len(buckets))]
+    with open(source,'r') as src, open(target,'r') as trg:
+        src = list(src)
+        np.random.seed(SEED)
+        np.random.shuffle(src)
+        src = iter(src)
+        trg = list(trg)
+        np.random.seed(SEED)
+        np.random.shuffle(trg)
+        trg = iter(trg)
+        for s,t in zip(src,trg):
+            sl, tl = len(s.split()), len(t.split())
+            for bucket_id, (source_size, target_size) in enumerate(buckets):         
+                if sl < source_size and tl < target_size:
+                    data[bucket_id].append((s, t, sl, tl))
+                    break
+
+    with open(source+'_train', 'w') as src_train,\
+         open(source+'_val', 'w') as src_val,\
+         open(target+'_train', 'w') as trg_train,\
+         open(target+'_val','w') as trg_val:
+
+        for b, ds in zip(buckets, data):
+            dl = len(ds)
+            print('\n')
+            print(b)
+            print('data : ' + str(dl))
+            for i, d in enumerate(ds):
+                (s, t, sl, tl) = d
+                if i < int(dl*split_ratio):
+                    src_train.write(s)
+                    trg_train.write(t)
+                else:
+                    src_val.write(s)
+                    trg_val.write(t)
+
+def simple2tradition(text):
+    return opencc.convert(text, config='zhs2zht.ini')
+
+def tradition2simple(text):
+    return opencc.convert(text,config='zht2zhs.ini')
+
+def train_fasttext(model_path,mapping,hkl_file):
+    import hickle as hkl
+    from fastText import load_model
+    model = load_model(model_path)
+    text = []
+    with open(mapping, 'r') as f:
+        for row in f.readlines():
+            row = row.strip()
+            row = tradition2simple(row)
+            vec = model.get_word_vector(row)
+            text.append(vec)
+    text = np.array(text)
+    hkl.dump(text,hkl_file)
+    
 if __name__ == "__main__":
-  prepare_whole_data('corpus/source', 'corpus/target', 60000)
+  prepare_whole_data('corpus/source', 'corpus/target', src_vocab_size)
   #data_set_1 = read_token_data('corpus/valid.source')
   #data_set_2 = read_token_data('corpus/valid.target')
 

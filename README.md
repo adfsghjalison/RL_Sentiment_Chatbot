@@ -9,8 +9,8 @@ This project is aimed to make chatbot responses more positive.
 
 ## Prerequisites
 1. Python packages:
-	- Python 3.4 or higher
-	- Tensorflow r1.0.1
+	- Python 3.6 or higher
+	- Tensorflow r1.8 or higher
 	- Numpy
 
 2. Clone this repository:
@@ -63,8 +63,8 @@ Simply run:
 `--num_layers`: numbers of the layer  
 `--batch_size`: batch size  
 `--mode`: mode of the seq2seq model (MLE, RL, TEST)  
-`--source_data_dir`: the path of the source file  
-`--target_data_dir`: the path of the target file  
+`--source_data`: the path of the source file  
+`--target_data`: the path of the target file  
 `--model_dir`: directory of the pre-trained seq2seq model  
 `--model_rl_dir`: direcory of the reinforcement learning seq2seq model  
 `--check_step`: step interval of saving model  

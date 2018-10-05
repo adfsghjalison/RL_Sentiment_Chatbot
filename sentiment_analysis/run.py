@@ -6,13 +6,13 @@ import sys
 import numpy as np
 sys.path.append('../sentiment_analysis/')
 import dataset
-from . import model
+#from . import model
+import model
+from settings import *
 
-VOCAB_SIZE = 10000
-BATCH_SIZE = 32
-UNIT_SIZE = 256
-MAX_LENGTH = 40
-CHECK_STEP = 1000.
+def sentence_cutter(sentence):
+    sentence = [s for s in sentence]
+    return (' ').join(sentence)
 
 def create_model(session, mode):
   m = model.discriminator(VOCAB_SIZE,
@@ -20,7 +20,8 @@ def create_model(session, mode):
                           BATCH_SIZE,
                           MAX_LENGTH,
                           mode)
-  ckpt = tf.train.get_checkpoint_state('sentiment_analysis/saved_model/')
+  ckpt = tf.train.get_checkpoint_state('./model/')
+  print('ckpt: ',ckpt)
 
   if ckpt:
     print("Reading model from %s" % ckpt.model_checkpoint_path)
@@ -32,14 +33,15 @@ def create_model(session, mode):
   return m
 
 def train():
-   if gfile.Exists('corpus/mapping') and gfile.Exists('corpus/SAD.csv.token'):
+   if gfile.Exists('data/mapping') and gfile.Exists('data/source_train.token'):
      print('Files have already been formed!')
    else:
      dataset.form_vocab_mapping(50000)
-     vocab_map, _ = dataset.read_map('corpus/mapping')
-     dataset.file_to_token('corpus/SAD.csv', vocab_map)
+     vocab_map, _ = dataset.read_map('data/mapping')
+     dataset.file_to_token('data/source_train', vocab_map)
 
-   d = dataset.read_data('corpus/SAD.csv.token')
+   d = dataset.read_data('data/source_train.token')
+   random.seed(SEED)
    random.shuffle(d)    
    
    train_set = d[:int(0.9 * len(d))]
@@ -73,13 +75,13 @@ def train():
        Model.mode = 'train'
        print("Train Loss: %s" % loss)
        print("Valid Loss: %s" % temp_loss)
-       checkpoint_path = os.path.join('saved_model/', 'dis.ckpt')
+       checkpoint_path = os.path.join('model/', 'dis.ckpt')
        Model.saver.save(sess, checkpoint_path, global_step = step)
        print("Model Saved!")
        loss = 0
 
 def evaluate():
-  vocab_map, _ = dataset.read_map('corpus/mapping')
+  vocab_map, _ = dataset.read_map('data/mapping')
   sess = tf.Session()
   Model = create_model(sess, 'test')
   Model.batch_size = 1
@@ -87,15 +89,21 @@ def evaluate():
   sys.stdout.write('>')
   sys.stdout.flush()
   sentence = sys.stdin.readline()
+  sentence = sentence_cutter(sentence)
 
   while(sentence):
     token_ids = dataset.convert_to_token(sentence, vocab_map)
+    print('toekn_ids: ',token_ids)
     encoder_input, encoder_length, _ = Model.get_batch([(0, token_ids)]) 
+    print('encoder_input: ',encoder_input, encoder_input.shape)
+    print('encoder_length: ',encoder_length)
     score = Model.step(sess, encoder_input, encoder_length)
     print('Score: ' + str(score[0][0]))
     print('>', end = '')
     sys.stdout.flush()
     sentence = sys.stdin.readline()
+    sentence = sentence_cutter(sentence)
 if __name__ == '__main__':
   train()
   #evaluate()
+
