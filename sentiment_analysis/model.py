@@ -1,21 +1,22 @@
-import dataset
-
+import utils
+import os
 import numpy as np
 import random
 import tensorflow as tf
 
 class discriminator():
 
-  def __init__(self, vocab_size, unit_size, batch_size, max_length, mode):
-    self.vocab_size = vocab_size
-    self.unit_size = unit_size
-    self.batch_size = batch_size
-    self.max_length = max_length
-    self.mode = mode
+  def __init__(self, args):
+    self.vocab_size = args.vocab_size
+    self.unit_size = args.unit_size
+    self.batch_size = args.batch_size
+    self.max_length = args.max_length
+    self.mode = args.mode
+    self.data_dir = args.data_dir
     self.model_type = {
+      'cnn': self.build_model_cnn,
       'rnn_last': self.build_model_rnn_last,
       'rnn_ave': self.build_model_rnn_ave,
-      'cnn': self.build_model_cnn,
       'xgboost': self.build_model_xgboost,
     }
     self.dropout_keep_prob = 1.0 
@@ -28,8 +29,9 @@ class discriminator():
     self.filter_sizes = [3,4]
     self.num_filters = 128 
 
-    self.build_model()
-    self.saver = tf.train.Saver(max_to_keep = 2)
+    self.build_model(args.model_typ)
+    self.saver = tf.train.Saver(max_to_keep = 5)
+
 
   def build_model(self,typ='cnn'):
     self.model_type[typ]()
@@ -106,69 +108,73 @@ class discriminator():
     output = tf.matmul(outputs, w) + b
 
     self.logit = tf.nn.sigmoid(output)
+    self.pred = tf.to_int32(self.logit > 0.5)
 
     if self.mode != 'test':
       self.target = tf.placeholder(tf.float32, [None, 1])
+      self.target_int = tf.placeholder(tf.int32, [None, 1])
       self.loss = tf.reduce_mean(tf.square(self.target - self.logit))
-
+      self.acc = tf.reduce_mean(tf.contrib.metrics.accuracy(self.pred, self.target_int))
       self.opt = tf.train.AdamOptimizer().minimize(self.loss)
     else:
-      #self.vocab_map, _ = dataset.read_map('sentiment_analysis/corpus/mapping')
-      self.vocab_map, _ = dataset.read_map('./data/mapping')
+      self.vocab_map, _ = utils.read_map(os.path.join(self.data_dir, 'dict'))
 
   def step(self, session, encoder_inputs, seq_length, target = None):
     input_feed = {}
     input_feed[self.encoder_input] = encoder_inputs
     input_feed[self.seq_length] = seq_length
 
-    output_feed = []
-
     if self.mode == 'train':
       input_feed[self.target] = target
-      output_feed.append(self.loss)
-      output_feed.append(self.opt)
-      #output_feed.append(self.encoder_input)
-      #output_feed.append(self.target)
+      input_feed[self.target_int] = target
+      
+      output_feed = [self.loss, self.acc, self.opt]
       outputs = session.run(output_feed, input_feed)
-      #return outputs[0], outputs[2], outputs[3]
-      return outputs[0]
+      return outputs
     elif self.mode == 'valid':
       input_feed[self.target] = target
-      output_feed.append(self.loss)
-      outputs = session.run(output_feed, input_feed)
-      return outputs[0]
-    elif self.mode == 'test':
-      output_feed.append(self.logit)
-      outputs = session.run(output_feed, input_feed)
-      return outputs[0]
+      input_feed[self.target_int] = target
 
-  def get_batch(self, data, shuffle=True):
+      output_feed = [self.loss, self.acc]
+      outputs = session.run(output_feed, input_feed)
+      return outputs
+    elif self.mode == 'test':
+      output_feed = [self.logit]
+      outputs = session.run(output_feed, input_feed)
+      return outputs
+
+  def get_batch(self, data, shuffle=True, xy=None):
     encoder_inputs = []
     encoder_length = []
     target = []
+    sen = []
 
-    for i in range(self.batch_size):
+    num = min(self.batch_size, len(data))
+
+    for i in range(num):
       if shuffle:
           pair = random.choice(data)
       else:
           pair = data[i]
-          #print('pair: ',pair)
-      #pair = data[i]
+
       length = len(pair[1])
       target.append([pair[0]])
+      sen.append(pair[2])
       if length > self.max_length:
-        encoder_inputs.append(pair[1][:self.max_length])
+        s = pair[1][:self.max_length]
+        s[-1] = utils.EOS_id
+        encoder_inputs.append(s)
         encoder_length.append(self.max_length)
       else:
-        encoder_pad = [dataset.PAD_ID] * (self.max_length - length)
+        encoder_pad = [utils.EOS_id] * (self.max_length - length)
         encoder_inputs.append(pair[1] + encoder_pad)
         encoder_length.append(length)
 
     batch_input = np.array(encoder_inputs, dtype = np.int32)
     batch_length = np.array(encoder_length, dtype = np.int32)
-    batch_target = np.array(target, dtype = np.float32)
+    batch_target = np.array(target, dtype = np.float32) if xy == None else target
 
-    return batch_input, batch_length, batch_target
+    return batch_input, batch_length, batch_target, sen
 
 if __name__ == '__main__':
   test = discriminator(1000, 100, 32, 1, 50)

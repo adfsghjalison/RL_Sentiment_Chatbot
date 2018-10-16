@@ -9,13 +9,13 @@ This project is aimed to make chatbot responses more positive.
 
 ## Prerequisites
 1. Python packages:
-	- Python 3.6 or higher
+	- Python 2.7 or higher
 	- Tensorflow r1.8 or higher
 	- Numpy
 
 2. Clone this repository:
 ```shell=
-https://github.com/k7922n/Seq2seq-Chatbot-With-Deep-Reinforcement-Learning.git
+https://github.com/adfsghjalison/Sentiment_Chatbot_RL.git
 ```
 
 ## Usage
@@ -26,7 +26,8 @@ Before training the seq2seq model with reinforcement learning, you need to pre-t
 
 1. First go to `./sentiment_analysis`
 
-2. Download sentiment analysis dataset [here](https://drive.google.com/file/d/1I1HLtix-R3O2HALyDwha6N4wM2K0p0FI/view?usp=sharing) and put it in `sentiment_analyis/corpus` and rename it as `SAD.csv`
+2. Put training data as data/source_train, one data a line.
+  [label] +++$+++ [sentence] 
 
 3. Run:
 `python run.py`
