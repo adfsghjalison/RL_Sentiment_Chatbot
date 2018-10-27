@@ -783,7 +783,7 @@ def _extract_beam_search(embedding, beam_size, num_symbols, embedding_size, outp
             #print('probs + log_beam_probs[-1]: ',probs+log_beam_probs[-1])
             probs = tf.reshape(probs + log_beam_probs[-1], [-1, beam_size * num_symbols])
             #print('probs: ', i, probs)
-        # 選出機率最大的前beam_size個序列,从beam_size * num_symbols個元素中選出beam_size個
+        # 選出機率最大的前beam_size個序列,從beam_size * num_symbols個元素中選出beam_size個
         best_probs, indices = tf.nn.top_k(probs, beam_size)
         #print('best_probs : ',best_probs)
         #print('indices: ',indices)
@@ -805,6 +805,59 @@ def _extract_beam_search(embedding, beam_size, num_symbols, embedding_size, outp
 
     return loop_function
 
+def mask_special_tag(symbols,log_probs,beam_size,total_words,index=2):
+    '''
+    default index is eos (=2)
+    '''
+
+    if_special_tag_bool = tf.equal(index,symbols)
+    if_special_tag_cond = tf.reduce_sum(tf.cast(if_special_tag_bool,tf.int32),axis=1)
+    if_special_tag_cond = tf.cast(if_special_tag_cond,tf.bool)
+    if_special_tag = tf.where(if_special_tag_bool)
+    special_tag_indices = tf.segment_min(if_special_tag[:,1],if_special_tag[:,0])
+    special_tag_indices = tf.cast(special_tag_indices,tf.int32)
+    last_indices = tf.ones((beam_size,),dtype=tf.int32)
+    last_indices = tf.multiply(last_indices,total_words-1)
+    #special_tag_indices = tf.scatter_sub(last_indices,uniq_indices,tf.gather(special_tag_indices,uniq_indices))
+    special_tag_indices = tf.where(if_special_tag_cond,special_tag_indices,last_indices)
+    indices_matrix = tf.range(0,total_words)
+    indices_matrix = tf.reshape(indices_matrix,[1,-1])
+    indices_matrix = tf.tile(indices_matrix,[beam_size,1])
+    special_tag_indices = tf.reshape(special_tag_indices,[-1,1])
+    bool_mask = tf.less_equal(indices_matrix,special_tag_indices)
+    zeros = tf.zeros([beam_size,total_words],tf.float32)
+    log_probs = tf.where(bool_mask,log_probs,zeros)
+    sequence_lengths = tf.reduce_sum(tf.cast(bool_mask,tf.int32),1) 
+    return log_probs, sequence_lengths
+
+def length_penalty(sequence_lengths, penalty_type='penalty', penalty_factor=0.6):
+    """Calculates the length penalty reference to
+    https://arxiv.org/abs/1609.08144
+     Args:
+      sequence_lengths: The sequence length of all hypotheses, a tensor
+        of shape [beam_size, vocab_size].
+      penalty_factor: A scalar that weights the length penalty.
+    Returns:
+      The length penalty factor, a tensor fo shape [beam_size].
+    """
+    if penalty_type == 'penalty':
+        return tf.div((5. + tf.to_float(sequence_lengths))**penalty_factor,(5. + 1.)**penalty_factor)
+    elif penalty_type == 'rerank':
+        return tf.cast(sequence_lengths,tf.float32)
+
+
+def cal_length_penalty(log_probs, sequence_lengths, penalty_type='penalty', penalty_factor=0.6):
+    """Calculates scores for beam search hypotheses.
+    """
+    # Calculate the length penality
+    length_penality_ = length_penalty(
+        sequence_lengths=sequence_lengths,
+        penalty_type = penalty_type,
+        penalty_factor=penalty_factor)
+
+    score = log_probs / length_penality_
+    return score
+
 def beam_attention_decoder(decoder_inputs,
                           initial_state,
                           attention_states,
@@ -815,7 +868,11 @@ def beam_attention_decoder(decoder_inputs,
                           loop_function=None,
                           dtype=None,
                           scope=None,
-                          initial_state_attention=False, output_projection=None, beam_size=10):
+                          initial_state_attention=False, 
+                          output_projection=None, 
+                          beam_size=10,
+                          length_penalty=None,
+                          length_penalty_factor=0.6):
     if not decoder_inputs:
         raise ValueError("Must provide at least 1 input to attention decoder.")
     if num_heads < 1:
@@ -839,7 +896,7 @@ def beam_attention_decoder(decoder_inputs,
         hidden_features = []
         v = []
         attention_vec_size = attn_size  # Size of query vectors for attention.
-        for a in xrange(num_heads):
+        for a in range(num_heads):
             k = variable_scope.get_variable("AttnW_%d" % a, [1, 1, attn_size, attention_vec_size])
             hidden_features.append(nn_ops.conv2d(hidden, k, [1, 1, 1, 1], "SAME"))
             v.append(variable_scope.get_variable("AttnV_%d" % a, [attention_vec_size]))
@@ -875,7 +932,7 @@ def beam_attention_decoder(decoder_inputs,
                     if ndims:
                         assert ndims == 2
                 query = array_ops.concat(query_list, 1)
-            for a in xrange(num_heads):
+            for a in range(num_heads):
                 with variable_scope.variable_scope("Attention_%d" % a):
                     y = linear(query, attention_vec_size, True)
                     y = array_ops.reshape(y, [-1, 1, 1, attention_vec_size])
@@ -902,7 +959,6 @@ def beam_attention_decoder(decoder_inputs,
 
         log_beam_probs, beam_path, beam_symbols = [], [], []
         for i, inp in enumerate(decoder_inputs):
-            #if i >1 : kkk
             if i > 0:
                 variable_scope.get_variable_scope().reuse_variables()
             # If loop_function is set, we use it instead of decoder_inputs.
@@ -946,7 +1002,14 @@ def beam_attention_decoder(decoder_inputs,
     #log_beam_probs = tf.reshape(tf.concat(log_beam_probs,0),[-1,beam_size])
     #log_beam_probs_sum = math_ops.reduce_sum(log_beam_probs,axis=0) 
     log_beam_probs = tf.concat(log_beam_probs,1)
-    log_beam_probs_sum = math_ops.reduce_sum(log_beam_probs,axis=1)
+    beam_symbols = list(map(lambda x:tf.reshape(x,[-1,1]),beam_symbols))
+    beam_symbols = tf.concat(beam_symbols,1)
+    if length_penalty:
+        log_beam_probs, sequence_lengths = mask_special_tag(beam_symbols,log_beam_probs,beam_size,log_beam_probs.shape[1],index=2)
+        log_beam_probs_sum = math_ops.reduce_sum(log_beam_probs,axis=1)
+        log_beam_probs = cal_length_penalty(log_beam_probs_sum, sequence_lengths, penalty_type=length_penalty, penalty_factor=length_penalty_factor)
+    else:
+        log_beam_probs_sum = math_ops.reduce_sum(log_beam_probs,axis=1)
     print('log_beam_probs: ',log_beam_probs)
     print('log_beam_probs_sum: ',log_beam_probs_sum)
     log_beam_probs_max_id = math_ops.argmax(log_beam_probs_sum) 
@@ -984,7 +1047,9 @@ def embedding_attention_decoder(decoder_inputs,
                                 beam_size=10, 
                                 loop=None,
                                 schedule_sampling=False,
-                                sampling_probability=None):
+                                sampling_probability=None,
+                                length_penalty=None,
+                                length_penalty_factor=0.6):
 
     if output_size is None:
         output_size = cell.output_size
@@ -993,17 +1058,26 @@ def embedding_attention_decoder(decoder_inputs,
         proj_biases.get_shape().assert_is_compatible_with([num_symbols])
 
     with variable_scope.variable_scope(scope or "embedding_attention_decoder", dtype=dtype) as scope:
-
+        #with tf.variable_scope('beam_search',reuse=tf.AUTO_REUSE): 
+        emb_inp = [embedding_ops.embedding_lookup(embedding, i) for i in decoder_inputs]
         # beam_search only happen in test mode
         if beam_search:
             #embedding = variable_scope.get_variable("embedding", [num_symbols, embedding_size])
-            emb_inp = [embedding_ops.embedding_lookup(embedding, i) for i in decoder_inputs]
             loop_function = _extract_beam_search(embedding, beam_size, num_symbols, embedding_size, output_projection)
             return beam_attention_decoder(
-                emb_inp, initial_state, attention_states, cell, embedding, output_size=output_size,
-                num_heads=num_heads, loop_function=loop_function,
-                initial_state_attention=initial_state_attention, output_projection=output_projection,
-                beam_size=beam_size)
+                emb_inp, 
+                initial_state, 
+                attention_states, 
+                cell, 
+                embedding, 
+                output_size=output_size,
+                num_heads=num_heads, 
+                loop_function=loop_function,
+                initial_state_attention=initial_state_attention, 
+                output_projection=output_projection,
+                beam_size=beam_size,
+                length_penalty=length_penalty, 
+                length_penalty_factor=length_penalty_factor)
         else:
             loop_function = None
             if feed_previous or schedule_sampling:
@@ -1019,9 +1093,6 @@ def embedding_attention_decoder(decoder_inputs,
                   tf.assert_type(sampling_probability,tf.float32) 
                 except:
                   tf.assert_type(sampling_probability,tf.float64) 
-            emb_inp = [
-                embedding_ops.embedding_lookup(embedding, i) for i in decoder_inputs
-            ]
             return attention_decoder(
                 emb_inp,
                 initial_state,
@@ -1052,7 +1123,9 @@ def embedding_attention_seq2seq(encoder_inputs,
                                 beam_size=10,
                                 loop=None,
                                 schedule_sampling=False,
-                                sampling_probability=None):
+                                sampling_probability=None,
+                                length_penalty=None,
+                                length_penalty_factor=0.6):
     """Embedding sequence-to-sequence model with attention.
 
     This model first embeds encoder_inputs by a newly created embedding (of shape
@@ -1135,4 +1208,6 @@ def embedding_attention_seq2seq(encoder_inputs,
             beam_size=beam_size,
             loop=loop,
             schedule_sampling=schedule_sampling,
-            sampling_probability=sampling_probability)
+            sampling_probability=sampling_probability,
+            length_penalty=length_penalty,
+            length_penalty_factor=length_penalty_factor)

@@ -1,3 +1,5 @@
+# --- coding: utf8 ---
+
 len_2 = ['樂']
 def qulify_sentence(sentence):
     w = []

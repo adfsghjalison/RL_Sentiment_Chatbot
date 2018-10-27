@@ -4,7 +4,7 @@ from __future__ import division
 import re
 import sys
 #import nltk
-from flags import buckets,split_ratio,SEED,replace_words,src_vocab_size
+from flags import buckets, split_ratio, SEED, replace_words, FLAGS
 import jieba
 import opencc
 import numpy as np
@@ -29,6 +29,8 @@ PAD_ID = 0
 GO_ID = 1
 EOS_ID = 2
 UNK_ID = 3
+
+src_vocab_size = FLAGS.src_vocab_size
 
 # Tokenize a sentence into a word list
 def tokenizer(sentence):
@@ -129,14 +131,31 @@ def file_to_token(file_path, vocab_map, nltk_tokenizer):
       with gfile.GFile(output_path, 'w') as output_file:
         counter = 0
         for line in input_file:
+          line = line.strip()
           counter += 1
           if counter % 100000 == 0:
             print("  Tokenizing line %s" % counter)
           token_ids = convert_to_token(tf.compat.as_bytes(line), vocab_map, nltk_tokenizer)
 
-          output_file.write(" ".join([str(tok) for tok in token_ids]) + '\n')
+          output_file.write("{} +++$+++ {}\n".format(" ".join([str(tok) for tok in token_ids]), line.decode()))
 
-def prepare_whole_data(input_path_1, input_path_2, max_size_1, max_size_2, nltk_tokenizer = False, skip_to_token = False, mode='diff'):
+def split_file(f, x, y):
+  fx = open(x, 'w')
+  fy = open(y, 'w')
+  for l in open(f):
+    l = l.strip().split(' +++$+++ ')
+    fx.write(l[0]+'\n')
+    fy.write(l[1]+'\n')
+
+  fx.close()
+  fy.close()
+
+def prepare_whole_data(data, input_path_1, input_path_2, max_size_1, max_size_2, nltk_tokenizer = False, skip_to_token = False, mode='diff'):
+
+  if not gfile.Exists(input_path_1) or not gfile.Exists(input_path_1):
+    split_file(data, input_path_1, input_path_2)
+  if not gfile.Exists(input_path_1+'_train') or not gfile.Exists(input_path_2+'_train'):
+    split_train_val(input_path_1, input_path_2)
   form_vocab_mapping(input_path_1, input_path_2, max_size_1, max_size_2, nltk_tokenizer, mode)
 
   map_src_path = input_path_1 + '.' + str(max_size_1) + '.mapping'  
@@ -148,7 +167,7 @@ def prepare_whole_data(input_path_1, input_path_2, max_size_1, max_size_2, nltk_
            input_path_2+'_train': vocab_map_trg,
            input_path_2+'_val': vocab_map_trg}
   if not skip_to_token:
-    for f,vocab_map in files.items():
+    for f, vocab_map in files.items():
       file_to_token(f , vocab_map, nltk_tokenizer)
 
 def read_data(source_path, target_path, bucket):
@@ -167,8 +186,10 @@ def read_data(source_path, target_path, bucket):
           #print('bucket: ',bucket)
  
           sys.stdout.flush()
-        source_ids = [int(x) for x in source.split()]
-        target_ids = [int(x) for x in target.split()]
+        source = source.split(' +++$+++ ')
+        target = target.split(' +++$+++ ')
+        source_ids = [int(x) for x in source[0].split()]
+        target_ids = [int(x) for x in target[0].split()]
         target_ids.append(EOS_ID)
 
         for bucket_id, (source_size, target_size) in enumerate(bucket):
@@ -177,7 +198,7 @@ def read_data(source_path, target_path, bucket):
           #    print('len(source_ids): ',len(source_ids),
           #          ' len(target_ids): ',len(target_ids))
           if len(source_ids) < source_size and len(target_ids) < target_size:
-            data_set[bucket_id].append((source_ids, target_ids))
+            data_set[bucket_id].append((source_ids, target_ids, source[1], target[1]))
             break
           #if bucket_id == 3: print('too long=======>',counter)
 

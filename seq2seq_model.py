@@ -8,7 +8,7 @@ from six.moves import range
 import numpy as np
 import random
 import copy
-
+from flags import FLAGS, buckets
 import data_utils
 import seq2seq
 
@@ -19,34 +19,19 @@ setattr(tf.contrib.rnn.MultiRNNCell, '__deepcopy__', lambda self, _: self)
 class Seq2seq():
   
   def __init__(self,
-               src_vocab_size,
-               trg_vocab_size,
-               buckets,
-               size,
-               num_layers,
-               batch_size,
                mode,
-               input_keep_prob,
-               output_keep_prob,
-               state_keep_prob,
-               beam_search,
-               beam_size,
-               schedule_sampling='linear', 
-               sampling_decay_rate=0.99,
-               sampling_global_step=150000,
-               sampling_decay_steps=500,
-               pretrain_vec = None,
-               pretrain_trainable = False,
+               length_penalty = None,
+               length_penalty_factor = 0.6 
                ):
     
-    self.src_vocab_size = src_vocab_size
-    self.trg_vocab_size = trg_vocab_size
+    self.src_vocab_size = FLAGS.src_vocab_size
+    self.trg_vocab_size = FLAGS.trg_vocab_size
     self.buckets = buckets
     # units of rnn cell
-    self.size = size
+    self.size = FLAGS.hidden_size
     # dimension of words
-    self.num_layers = num_layers
-    self.batch_size = batch_size
+    self.num_layers = FLAGS.num_layers
+    self.batch_size = FLAGS.batch_size
     self.learning_rate = tf.Variable(0.5, trainable=False)
     self.mode = mode
     self.dummy_reply = ["what ?", "yeah .", "you are welcome ! ! ! !"]
@@ -61,26 +46,28 @@ class Seq2seq():
     self.RL_index = [None for _ in self.buckets]
 
     # dropout
-    self.input_keep_prob =  input_keep_prob
-    self.output_keep_prob = output_keep_prob
-    self.state_keep_prob =  state_keep_prob
+    self.input_keep_prob =  FLAGS.input_keep_prob
+    self.output_keep_prob = FLAGS.output_keep_prob
+    self.state_keep_prob =  FLAGS.state_keep_prob
 
     # beam search
-    self.beam_search = beam_search
-    self.beam_size = beam_size
+    self.beam_search = FLAGS.beam_search
+    self.beam_size = FLAGS.beam_size
+    self.length_penalty = length_penalty
+    self.length_penalty_factor = length_penalty_factor
 
     # if load pretrain word vector
-    self.pretrain_vec = pretrain_vec
-    self.pretrain_trainable = pretrain_trainable
+    self.pretrain_vec = FLAGS.pretrain_vec
+    self.pretrain_trainable = FLAGS.pretrain_trainable
 
     # schedule sampling
     self.sampling_probability_clip = None 
-    self.schedule_sampling = schedule_sampling
+    self.schedule_sampling = FLAGS.schedule_sampling
     if self.schedule_sampling == 'False': self.schedule_sampling = False
     self.init_sampling_probability = 1.0
-    self.sampling_global_step = sampling_global_step
-    self.sampling_decay_steps = sampling_decay_steps 
-    self.sampling_decay_rate = sampling_decay_rate 
+    self.sampling_global_step = FLAGS.sampling_global_step
+    self.sampling_decay_steps = FLAGS.sampling_decay_steps 
+    self.sampling_decay_rate = FLAGS.sampling_decay_rate 
 
     if self.schedule_sampling == 'linear':
       self.decay_fixed = self.init_sampling_probability * (self.sampling_decay_steps / self.sampling_global_step)
@@ -145,9 +132,17 @@ class Seq2seq():
       if pretrain_vec is not None: 
         pad_num = self.src_vocab_size - pretrain_vec.shape[0]
         pretrain_vec = np.pad(pretrain_vec, [(0, pad_num), (0, 0)], mode='constant')
-        embedding = tf.get_variable(name = "embedding", 
-                                    initializer = pretrain_vec,
-                                    trainable = self.pretrain_trainable)
+        tag_vec = pretrain_vec[:data_utils.SPECIAL_TAGS_COUNT]
+        pretrain_vec = pretrain_vec[data_utils.SPECIAL_TAGS_COUNT:]
+        special_tags = tf.get_variable(
+                name="special_tags",
+                initializer = tag_vec,
+                trainable = True)
+        embedding = tf.get_variable(
+                name = "embedding", 
+                initializer = pretrain_vec,
+                trainable = self.pretrain_trainable)
+        embedding = tf.concat([special_tags,embedding],0)
       else:
         embedding = tf.get_variable("embedding", [self.src_vocab_size, self.size])
       loop_function_RL = None
@@ -198,7 +193,9 @@ class Seq2seq():
              beam_size = self.beam_size,
              loop = loop_function_RL,
              schedule_sampling = self.schedule_sampling,
-             sampling_probability = self.sampling_probability_clip)
+             sampling_probability = self.sampling_probability_clip,
+             length_penalty = self.length_penalty,
+             length_penalty_factor = self.length_penalty_factor)
     
     # inputs
     self.encoder_inputs = []
@@ -241,7 +238,7 @@ class Seq2seq():
         self.update.append(optimizer.apply_gradients(zip(clipped_gradients, tf.trainable_variables())))
 
     elif self.mode == 'TEST':
-      self.buckets = [(10, 50), (15, 50), (25, 50), (50, 50)] 
+      #self.buckets = [(10, 50), (15, 50), (25, 50), (50, 50)] 
 
       self.outputs, self.losses = seq2seq.model_with_buckets(
            self.encoder_inputs, self.decoder_inputs, targets,
@@ -289,8 +286,10 @@ class Seq2seq():
       optimizer = tf.train.GradientDescentOptimizer(0.01)
       #optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
       for b in range(len(self.buckets)):
-        scaled_loss = tf.multiply(self.losses[b], batch_reward)
-        self.losses[b] = tf.reduce_mean(scaled_loss)
+
+        #scaled_loss = tf.multiply(self.losses[b], batch_reward)
+        #self.losses[b] = tf.reduce_mean(scaled_loss)
+
         gradients = tf.gradients(self.losses[b], tf.trainable_variables())
         clipped_gradients, _ = tf.clip_by_global_norm(gradients, 5.0)
         self.update.append(optimizer.apply_gradients(zip(clipped_gradients, tf.trainable_variables())))
@@ -313,7 +312,7 @@ class Seq2seq():
         sentence_list[i] = sentence_list[i][:sentence_list[i].index(data_utils.EOS_ID)]
       if data_utils.PAD_ID in sentence_list[i]:
         sentence_list[i] = sentence_list[i][:sentence_list[i].index(data_utils.PAD_ID)]
-      sentence_temp = [tf.compat.as_str(self.vocab_list[output]) for output in sentence_list[i]]  
+      sentence_temp = [tf.compat.as_str(self.src_vocab_list[output]) for output in sentence_list[i]]  
       sentence_list[i] = " ".join(word for word in sentence_temp)
     return sentence_list
 
@@ -342,7 +341,7 @@ class Seq2seq():
     # function X, not trainable, batch = 1
     temp = self.batch_size
     self.batch_size = 1
-    encoder_input, decoder_input, weight = self.get_batch({bucket_id: [(a, b)]}, bucket_id)
+    encoder_input, decoder_input, weight = self.get_batch({bucket_id: [(a, b, "", "")]}, bucket_id)
     self.batch_size = temp
     outputs = X(encoder_input, decoder_input, weight, bucket_id)
     #print('b: ',b)
@@ -357,8 +356,9 @@ class Seq2seq():
     return r
 
   # this function is specify for training of Reinforcement Learning case
-  def RL_readmap(self, map_path):
-    self.vocab_dict, self.vocab_list = data_utils.read_map(map_path)
+  def RL_readmap(self, src_map_path, trg_map_path):
+    _, self.src_vocab_list = data_utils.read_map(src_map_path)
+    _, self.trg_vocab_list = data_utils.read_map(trg_map_path)
 
   def run(self, sess, encoder_inputs, decoder_inputs, target_weights,
           bucket_id, forward_only = False, X = None, Y = None):
@@ -368,7 +368,7 @@ class Seq2seq():
         decoder_size = self.buckets[-1][-1] 
         decoder_inputs = np.reshape(np.repeat(decoder_inputs[0],decoder_size),(-1,1))
         target_weights = np.reshape(np.repeat(target_weights[0],decoder_size),(-1,1))
-        print('decoder_inputs: ',len(decoder_inputs))
+        #print('decoder_inputs: ',len(decoder_inputs))
     else:
         encoder_size, decoder_size = self.buckets[bucket_id]
     #print('bucket_id: ',bucket_id)
@@ -398,7 +398,7 @@ class Seq2seq():
     elif self.mode == 'TEST':
       output_feed = [self.outputs[bucket_id]]
       outputs = sess.run(output_feed, input_feed)
-      return outputs[0]
+      return outputs
     elif self.mode == 'RL':
       # check mode: sample or from decoder input
       # True for sample and False for from decoder input
@@ -422,15 +422,16 @@ class Seq2seq():
         # token_ids是tf.multinomial取樣出來的東西
         if data_utils.EOS_ID in token_ids:
           token_ids = token_ids[:token_ids.index(data_utils.EOS_ID)]
-        new_data.append(([], token_ids + [data_utils.EOS_ID]))
+        new_data.append(([], token_ids + [data_utils.EOS_ID], "", ""))
+
         '''
         # in this case, X is language model score
         # reward 1: ease of answering
-        temp_reward = [self.prob(token_ids, data_utils.convert_to_token(tf.compat.as_bytes(sen), self.vocab_dict,
+        temp_reward = [self.prob(token_ids, data_utils.convert_to_token(tf.compat.as_bytes(sen), self.trg_vocab_dict,
                        False) + [data_utils.EOS_ID], X, bucket_id)/float(len(sen)) for sen in self.dummy_reply]
 
         r1 = -np.mean(temp_reward)
-        '''
+
         # reward 2: semantic coherence
         r_input = list(reversed([o[i] for o in encoder_inputs]))
         if data_utils.PAD_ID in r_input:
@@ -438,26 +439,28 @@ class Seq2seq():
 
         r2 = self.prob(r_input, token_ids, X, bucket_id) / float(len(token_ids)) if len(token_ids) != 0 else 0
 
+        '''
+
         # reward 3: sentiment analysis score
-        #print('self.vocablist:' ,len(self.vocab_list))
+        #print('self.vocablist:' ,len(self.trg_vocab_list))
         #print('token_ids: ',token_ids)
-        word_token = []
-        for token in token_ids:
-            if token in self.vocab_list:
-                word_token.append(self.vocab_list[token].decode('utf-8'))
-        #word_token = [self.vocab_list[token].decode('utf-8') for token in token_ids]
+
+        word_token = [self.trg_vocab_list[token].decode('utf-8') for token in token_ids]
         r3 = Y(word_token, np.array([len(token_ids)], dtype = np.int32))
+        #r3 = r3 / 2 + 0.5
+
         '''
         print('r1: %s' % r1)
         print('r2: %s' % r2)
         print('r3: %s' % r3)
         '''
         #reward[i] = 0.7 * r1 + 0.7 * r2 + r3
-        reward[i] = 0 * r2 + r3
+        #reward[i] = 0 * r2 + r3
+        reward[i] = 1
       #print(reward)
       # advantage
       reward = reward - np.mean(reward)
-      _, decoder_inputs, target_weights = self.get_batch({bucket_id: new_data}, bucket_id, order = True)
+      _, decoder_inputs, target_weights = self.get_batch({bucket_id: new_data}, bucket_id, rand = False)
 
       # step 3: update seq2seq model
       for l in range(decoder_size):
@@ -466,29 +469,38 @@ class Seq2seq():
 
       input_feed[self.reward] = reward
       input_feed[self.loop_or_not] = False
-      output_feed = [self.losses[bucket_id], self.update[bucket_id]]
+      output_feed = [self.outputs[bucket_id], self.losses[bucket_id], self.update[bucket_id]]
       #output_feed = [self.losses[bucket_id]]
       outputs = sess.run(output_feed, input_feed)
 
-      return outputs[0]
+      return outputs
 
 
-  def get_batch(self, data, bucket_id, rand = True, order = False):
+  def get_batch(self, data, bucket_id, rand = True, initial_id=0, sen=False):
     # data should be [whole_data_length x (source, target)] 
     # decoder_input should contain "GO" symbol and target should contain "EOS" symbol
     encoder_size, decoder_size = self.buckets[bucket_id]
     encoder_inputs, decoder_inputs = [], []
+    
+    en_s_list = []
+    de_s_list = []
 
     # data[bucket_id] == [(incoder_inp_list,decoder_inp_list),...]
-    encoder_input, decoder_input = random.choice(data[bucket_id])
-    c = 0
 
-    for i in range(self.batch_size):
+    data_len = len(data[bucket_id]) - initial_id
+    if data_len >= self.batch_size:
+        data_range = self.batch_size
+    else:
+        data_range = data_len
+
+    for i in range(data_range):
       if rand:
-        encoder_input, decoder_input = random.choice(data[bucket_id])
-      if order:
-        encoder_input, decoder_input = data[bucket_id][i]
-        c += 1 
+        encoder_input, decoder_input, en_s, de_s = random.choice(data[bucket_id])
+      else:
+        encoder_input, decoder_input, en_s, de_s = data[bucket_id][i+initial_id]
+
+      en_s_list.append(en_s)
+      de_s_list.append(de_s)
 
       encoder_pad = [data_utils.PAD_ID] * (encoder_size - len(encoder_input))
       encoder_inputs.append(list(reversed(encoder_input + encoder_pad)))
@@ -500,14 +512,14 @@ class Seq2seq():
 
     for length_idx in range(encoder_size):
       batch_encoder_inputs.append(np.array([encoder_inputs[batch_idx][length_idx]
-                                  for batch_idx in range(self.batch_size)], dtype = np.int32))
+                                  for batch_idx in range(data_range)], dtype = np.int32))
 
     for length_idx in range(decoder_size):
       batch_decoder_inputs.append(np.array([decoder_inputs[batch_idx][length_idx]
-                                  for batch_idx in range(self.batch_size)], dtype = np.int32))
+                                  for batch_idx in range(data_range)], dtype = np.int32))
 
-      batch_weight = np.ones(self.batch_size, dtype = np.float32)
-      for batch_idx in range(self.batch_size):
+      batch_weight = np.ones(data_range, dtype = np.float32)
+      for batch_idx in range(data_range):
         # We set weight to 0 if the corresponding target is a PAD symbol.
         # The corresponding target is decoder_input shifted by 1 forward.
         if length_idx < decoder_size - 1:
@@ -516,7 +528,10 @@ class Seq2seq():
           batch_weight[batch_idx] = 0.0
       batch_weights.append(batch_weight)
 
-    return batch_encoder_inputs, batch_decoder_inputs, batch_weights
+    if sen:
+      return batch_encoder_inputs, batch_decoder_inputs, batch_weights, en_s_list, de_s_list
+    else:
+      return batch_encoder_inputs, batch_decoder_inputs, batch_weights
 
 if __name__ == '__main__':
 

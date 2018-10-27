@@ -1,4 +1,4 @@
-import utils
+from . import utils
 import os
 import numpy as np
 import random
@@ -12,11 +12,12 @@ class discriminator():
     self.batch_size = args.batch_size
     self.max_length = args.max_length
     self.mode = args.mode
+    self.model_dir = args.model_dir
     self.data_dir = args.data_dir
     self.model_type = {
       'cnn': self.build_model_cnn,
-      'rnn_last': self.build_model_rnn_last,
-      'rnn_ave': self.build_model_rnn_ave,
+      'rnn-last': self.build_model_rnn_last,
+      'rnn-ave': self.build_model_rnn_ave,
       'xgboost': self.build_model_xgboost,
     }
     self.dropout_keep_prob = 1.0 
@@ -25,11 +26,17 @@ class discriminator():
     #self.initializer = tf.glorot_uniform_initializer()
     #self.initializer = tf.glorot_normal_initializer()
 
+    print('\n\n----------------')
+    print(utils)
+
     # for cnn
     self.filter_sizes = [3,4]
     self.num_filters = 128 
 
     self.build_model(args.model_typ)
+
+    if not os.path.exists(self.model_dir):
+      os.system('mkdir {}'.format(self.model_dir))
     self.saver = tf.train.Saver(max_to_keep = 5)
 
 

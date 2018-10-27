@@ -11,8 +11,8 @@ from termcolor import colored
 import data_utils
 import seq2seq_model
 from seq2seq import bernoulli_sampling
-from sentiment_analysis import run
-from sentiment_analysis import dataset
+from sentiment_analysis import main
+from sentiment_analysis import utils
 from flags import FLAGS, SEED, buckets, replace_words, reset_prob 
 from utils import qulify_sentence
 
@@ -22,7 +22,7 @@ from utils import qulify_sentence
 # 3. TEST
 def create_seq2seq(session, mode):
 
-  if mode == 'TEST':
+  if FLAGS.mode == 'TEST' or 'val' in FLAGS.mode:
     FLAGS.schedule_sampling = False 
   else:
     FLAGS.beam_search = False
@@ -31,56 +31,35 @@ def create_seq2seq(session, mode):
     print('FLAGS.beam_size: ',FLAGS.beam_size)
     print('FLAGS.debug: ',bool(FLAGS.debug))
       
-  model = seq2seq_model.Seq2seq(src_vocab_size = FLAGS.src_vocab_size,
-                                trg_vocab_size = FLAGS.trg_vocab_size,
-                                buckets = buckets,
-                                size = FLAGS.hidden_size,
-                                num_layers = FLAGS.num_layers,
-                                batch_size = FLAGS.batch_size,
-                                mode = mode,
-                                input_keep_prob = FLAGS.input_keep_prob,
-                                output_keep_prob = FLAGS.output_keep_prob,
-                                state_keep_prob = FLAGS.state_keep_prob,
-                                beam_search = FLAGS.beam_search,
-                                beam_size = FLAGS.beam_size,
-                                schedule_sampling = FLAGS.schedule_sampling,
-                                sampling_decay_rate = FLAGS.sampling_decay_rate,
-                                sampling_global_step = FLAGS.sampling_global_step,
-                                sampling_decay_steps = FLAGS.sampling_decay_steps,
-                                pretrain_vec = FLAGS.pretrain_vec,
-                                pretrain_trainable = FLAGS.pretrain_trainable
-                                )
+  model = seq2seq_model.Seq2seq(mode)
   
-  #if mode != 'TEST':
-  ckpt = tf.train.get_checkpoint_state(FLAGS.model_dir)
-  #else:
-  #  ckpt = tf.train.get_checkpoint_state(FLAGS.model_rl_dir)
+  if FLAGS.mode == 'val_rl' or FLAGS.mode == 'RL':
+    ckpt = tf.train.get_checkpoint_state(FLAGS.model_rl_dir)
+  else:
+    ckpt = tf.train.get_checkpoint_state(FLAGS.model_pre_dir)
   
   if ckpt:
-    print("Reading model from %s, mode: %s" % (ckpt.model_checkpoint_path, mode))
+    print("Reading model from %s, mode: %s" % (ckpt.model_checkpoint_path, FLAGS.mode))
     model.saver.restore(session, ckpt.model_checkpoint_path)
   else:
-    print("Create model with fresh parameters, mode: %s" % mode)
+    print("Create model with fresh parameters, mode: %s" % FLAGS.mode)
     session.run(tf.global_variables_initializer())
   
   return model
 
-def train_MLE(): 
-  '''
-  data_utils.prepare_whole_data(FLAGS.source_data, FLAGS.target_data, FLAGS.src_vocab_size, FLAGS.trg_vocab_size)
+def _output(output, trg_vocab_list):
+  outputs = [int(np.argmax(logit)) for logit in output]
+  # If there is an EOS symbol in outputs, cut them at that point.
+  if data_utils.EOS_ID in outputs:
+    outputs = outputs[:outputs.index(data_utils.EOS_ID)]
+  sys_reply = " ".join([tf.compat.as_str(trg_vocab_list[output]) for output in outputs])
+  #sys_reply = data_utils.sub_words(sys_reply)
+  #sys_reply = qulify_sentence(sys_reply)
+  return sys_reply
 
-  # read dataset and split to training set and validation set
-  d = data_utils.read_data(FLAGS.source_data + '.token', FLAGS.target_data + '.token', buckets)
-  np.random.seed(SEED)
-  np.random.shuffle(d)
-  print('Total document size: %s' % sum(len(l) for l in d))
-  print('len(d): ', len(d))
-  d_train = [[] for _ in range(len(d))]
-  d_valid = [[] for _ in range(len(d))]
-  for i in range(len(d)):
-    d_train[i] = d[i][:int(0.9 * len(d[i]))]
-    d_valid[i] = d[i][int(-0.1 * len(d[i])):]
-  '''
+def train_MLE(): 
+
+  data_utils.prepare_whole_data(FLAGS.data, FLAGS.source_data, FLAGS.target_data, FLAGS.src_vocab_size, FLAGS.trg_vocab_size)
 
   d_train = data_utils.read_data(FLAGS.source_data + '_train.token',FLAGS.target_data + '_train.token',buckets)
   d_valid = data_utils.read_data(FLAGS.source_data + '_val.token',FLAGS.target_data + '_val.token',buckets)
@@ -125,7 +104,7 @@ def train_MLE():
       step += 1
 
       random_number = np.random.random_sample()
-      # buckets_scale 是累加百分比
+      # buckets_scale accumulated percentage
       bucket_id = min([i for i in range(len(train_buckets_scale))
                          if train_buckets_scale[i] > random_number])
       encoder_input, decoder_input, weight = model.get_batch(d_train, bucket_id)
@@ -161,12 +140,55 @@ def train_MLE():
         loss_list.append(loss)  
         loss = 0
 
-        checkpoint_path = os.path.join(FLAGS.model_dir, "MLE.ckpt")
+        checkpoint_path = os.path.join(FLAGS.model_pre_dir, "MLE.ckpt")
         model.saver.save(sess, checkpoint_path, global_step = step)
         print('Saving model at step %s' % step)
       if step == FLAGS.sampling_global_step: break
 
+def val(mo):
+
+  d_valid = data_utils.read_data(FLAGS.source_data + '_val.token',FLAGS.target_data + '_val.token',buckets)
+  _ , trg_vocab_list = data_utils.read_map(FLAGS.target_data + '.' + str(FLAGS.trg_vocab_size) + '.mapping')
+  
+  print('Total document size of validation data: %s' % sum(len(l) for l in d_valid))
+
+  valid_bucket_sizes = [len(d_valid[b]) for b in range(len(d_valid))]
+  valid_total_size = float(sum(valid_bucket_sizes))
+  valid_buckets_scale = [sum(valid_bucket_sizes[:i + 1]) / valid_total_size
+                         for i in range(len(valid_bucket_sizes))]
+  print('valid_bucket_sizes: ',valid_bucket_sizes)
+  print('valid_total_size: ',valid_total_size)
+  print('valid_buckets_scale: ',valid_buckets_scale)
+
+  with tf.Session() as sess:
+    
+    model = create_seq2seq(sess, 'TEST')
+    
+    loss_list = []
+
+    for bucket_id in range(len(buckets)):
+      start = 0
+      while start < len(d_valid[bucket_id]):
+        encoder_input, decoder_input, weight, en_s, de_s = model.get_batch(d_valid, bucket_id, rand=False, initial_id=start, sen=True)
+        start += FLAGS.batch_size
+
+        output = model.run(sess, encoder_input, decoder_input, weight, bucket_id)
+        for x, y in zip(en_s, output):
+          print('    {}'.format(x.strip()))
+          print('->  {}\n'.format(_output(y, trg_vocab_list)))
+
+def try_sen():
+  g3 = tf.Graph()
+  sess3 = tf.Session(graph = g3)
+  model_SA = main.create_model(sess3)
+  #main.test()
+
 def train_RL():
+
+  data_utils.prepare_whole_data(FLAGS.data, FLAGS.source_data, FLAGS.target_data, FLAGS.src_vocab_size, FLAGS.trg_vocab_size)
+  d_train = data_utils.read_data(FLAGS.source_data + '_train.token',FLAGS.target_data + '_train.token',buckets)
+  #print(d_train[0][0])
+
   g1 = tf.Graph()
   g2 = tf.Graph()
   g3 = tf.Graph()
@@ -189,21 +211,15 @@ def train_RL():
     return model_LM.run(sess2, encoder_input, decoder_input, weight, bucket_id, forward_only = True)[1]
   # new reward function: sentiment score
   with g3.as_default():
-    model_SA = run.create_model(sess3, 'test') 
+    model_SA = main.create_model(sess3) 
     model_SA.batch_size = 1
  
   def SA(sentence, encoder_length):
     sentence = ' '.join(sentence)
-    token_ids = dataset.convert_to_token(sentence, model_SA.vocab_map)
-    encoder_input, encoder_length, _ = model_SA.get_batch([(0, token_ids)])
+    token_ids = utils.convert_to_token(sentence, model_SA.vocab_map)
+    encoder_input, encoder_length, _, _ = model_SA.get_batch([(0, token_ids, sentence)])
     return model_SA.step(sess3, encoder_input, encoder_length)[0][0]
 
-  '''
-  data_utils.prepare_whole_data(FLAGS.source_data, FLAGS.target_data, FLAGS.src_vocab_size, FLAGS.trg_vocab_size)
-  d = data_utils.read_data(FLAGS.source_data + '.token', FLAGS.target_data + '.token', buckets)
-  '''
-
-  d = data_utils.read_data(FLAGS.source_data + '_train.token',FLAGS.target_data + '_train.token',buckets)
 
   train_bucket_sizes = [len(d_train[b]) for b in range(len(d_train))]
   train_total_size = float(sum(train_bucket_sizes))
@@ -211,8 +227,9 @@ def train_RL():
                          for i in range(len(train_bucket_sizes))]
 
   # make RL object read vocab mapping dict, list  
-  model.RL_readmap(FLAGS.source_data + '.' + str(FLAGS.src_vocab_size) + '.mapping')
+  model.RL_readmap(FLAGS.source_data + '.' + str(FLAGS.src_vocab_size) + '.mapping', FLAGS.target_data + '.' + str(FLAGS.trg_vocab_size) + '.mapping')
   step = 0
+  
 
   while step < FLAGS.max_step:
     step += 1
@@ -223,8 +240,8 @@ def train_RL():
     
     # the same encoder_input for sampling batch_size times
     #encoder_input, decoder_input, weight = model.get_batch(d, bucket_id, rand = False)    
-    encoder_input, decoder_input, weight = model.get_batch(d, bucket_id, rand = False)    
-    loss = model.run(sess1, encoder_input, decoder_input, weight, bucket_id, X = LM, Y = SA)
+    encoder_input, decoder_input, weight, en_s, de_s = model.get_batch(d_train, bucket_id, sen=True)
+    output, loss, _ = model.run(sess1, encoder_input, decoder_input, weight, bucket_id, X = LM, Y = SA)
    
     # debug 
     #encoder_input = np.reshape(np.transpose(encoder_input, (1, 0, 2)), (-1, FLAGS.vocab_size))
@@ -234,11 +251,15 @@ def train_RL():
     #print(model.token2word(sen)[0])
     
     if step % FLAGS.print_step == 0:
-      print('{} steps trained ...'.format(step))
+      print('Input :')
+      print(en_s[0].strip())
+      print('Output:')
+      print(_output(output[0], model.trg_vocab_list))
+      print('\n{} steps trained ...'.format(step))
 
     if step % FLAGS.check_step == 0:
       print('Loss at step %s: %s' % (step, loss))
-      checkpoint_path = os.path.join('model_RL', "RL.ckpt")
+      checkpoint_path = os.path.join(FLAGS.model_rl_dir, "RL.ckpt")
       model.saver.save(sess1, checkpoint_path, global_step = step)
       print('Saving model at step %s' % step)
 
@@ -269,7 +290,7 @@ def test():
         bucket_id = i
         break
     # Get a 1-element batch to feed the sentence to the model.
-    encoder_input, decoder_input, weight = model.get_batch({bucket_id: [(token_ids, [])]}, bucket_id)
+    encoder_input, decoder_input, weight = model.get_batch({bucket_id: [(token_ids, [], "", "")]}, bucket_id)
     # Get output logits for the sentence.
     output = model.run(sess, encoder_input, decoder_input, weight, bucket_id)
     # This is a greedy decoder - outputs are just argmaxes of output_logits.
@@ -314,7 +335,8 @@ def test():
     # MLE
     else:
         output = model.run(sess, encoder_input, decoder_input, weight, bucket_id)
-        print('output: ', len(output), output[0].shape)
+        print(output)
+        print('output: ', len(output), output.shape, output[0].shape)
         outputs = [int(np.argmax(logit, axis=1)) for logit in output]
         # If there is an EOS symbol in outputs, cut them at that point.
         if data_utils.EOS_ID in outputs:
@@ -327,19 +349,23 @@ def test():
 
     # Print out French sentence corresponding to outputs.
     #print("Syetem reply: " + "".join([tf.compat.as_str(trg_vocab_list[output]) for output in outputs]))
-    print("User input  : ", end="")
+    print ("User input  : ")
     sys.stdout.flush()
     sentence = sys.stdin.readline()
     if FLAGS.src_word_seg == 'word':
       sentence = (' ').join(jieba.lcut(sentence))
-      print('sentence: ',sentence)
+      print ('sentence: ', sentence)
     elif FLAGS.src_word_seg == 'char':
       sentence = (' ').join([s for s in sentence])
 
 if __name__ == '__main__':
+  #try_sen()
   if FLAGS.mode == 'MLE':
     train_MLE()
   elif FLAGS.mode == 'RL':
     train_RL()
+  elif 'val' in FLAGS.mode:
+    val(FLAGS.mode)
   else:
     test()
+

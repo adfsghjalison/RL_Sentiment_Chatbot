@@ -5,11 +5,13 @@ import os
 import sys
 import numpy as np
 sys.path.append('../sentiment_analysis/')
-import utils
+from . import utils
+from . import model
+from .flags import FLAGS
 #from . import model
-import model
-from flags import FLAGS
 
+#FLAGS = flags.Parse()
+print(FLAGS)
 model_dir = FLAGS.model_dir
 data_dir = FLAGS.data_dir
 
@@ -97,9 +99,11 @@ def train():
       Model.mode = 'train'
 
 def test():
+  print('\n\n****************')
+  print(utils)
   vocab_map, _ = utils.read_map(os.path.join(data_dir, 'dict'))
   sess = tf.Session()
-  Model = create_model(sess, 'test')
+  Model = create_model(sess)
   Model.batch_size = 1
   
   sys.stdout.write('>')
@@ -115,54 +119,52 @@ def test():
     print('encoder_length: ',encoder_length)
     score = Model.step(sess, encoder_input, encoder_length)
     print('Score: ' + str(score[0][0]))
-    print '>',
+    print ('>')
     sys.stdout.flush()
     sentence = sys.stdin.readline()
     sentence = sentence_cutter(sentence)
 
 def generate_data_d_x(Model):
   vocab_map, _ = utils.read_map(os.path.join(data_dir, 'dict'))
-  data = utils.read_data(os.path.join(data_dir, 'source_all'), vocab_map)
+  data = utils.read_data(os.path.join(data_dir, 'sentiment'), vocab_map, skip=False)
   bat = FLAGS.batch_size
 
   f = open(os.path.join(data_dir, 'int_x'), 'w')
   H = 0.8
   L = 0.2
 
-  sess = tf.Session()
-  Model = create_model(sess)
-  Model.mode='test'
   num = len(data)
   start = 0
   cnt_h, cnt_l = 0, 0
 
   while start < num:
     if start + bat < num:
-      encoder_input, encoder_length, _, X = Model.get_batch(data[start : start + bat], shuffle=False)
+      encoder_input, encoder_length, S, X = Model.get_batch(data[start : start + bat], shuffle=False)
     else:
-      encoder_input, encoder_length, _, X = Model.get_batch(data[start:], shuffle=False)
+      encoder_input, encoder_length, S, X = Model.get_batch(data[start:], shuffle=False)
 
     score = Model.step(sess, encoder_input, encoder_length)
-    for s, x in zip(score[0], X):
-      if s > H:
+    for s, l, x in zip(score[0], S, X):
+      l = l[0]
+      if s > H and (l == -1 or l == 1):
         f.write("{} +++$+++ {}\n".format(1, x))
         cnt_h += 1
-      elif s < L:
+      elif s < L and (l == -1 or l == 0):
         f.write("{} +++$+++ {}\n".format(0, x))
         cnt_l += 1
 
     if start % (FLAGS.batch_size*200) == 0:
-      print '\n\n-------------------{}--------------------\n\n'.format(start)
+      print ('\n\n-------------------{}--------------------\n\n'.format(start))
     start += bat
 
   f.close()
 
-  print 'H : {}\nL : {}'.format(cnt_h, cnt_l)
+  print ('H : {}\nL : {}'.format(cnt_h, cnt_l))
 
 
 def generate_data_f_x_y(Model, xy=True):
   vocab_map, _ = utils.read_map(os.path.join(data_dir, 'dict'))
-  data = utils.read_data(os.path.join(data_dir, 'chatbot'), vocab_map, xy=xy)
+  data = utils.read_data(os.path.join(data_dir, 'chatbot'), vocab_map, xy=xy, skip=False)
   bat = FLAGS.batch_size
 
   f = open(os.path.join(data_dir, 'float_x_y'), 'w')
@@ -181,13 +183,13 @@ def generate_data_f_x_y(Model, xy=True):
       f.write("{} +++$+++ {} +++$+++ {}\n".format(round(s[0], 2), x[0], y))
 
     if start % (FLAGS.batch_size*200) == 0:
-      print '\n\n-------------------{}--------------------\n\n'.format(start)
+      print ('\n\n-------------------{}--------------------\n\n'.format(start))
     start += bat
 
   f.close()
 
 def clean():
-  os.system('/bin/rm '+os.path.join(FLAGS.data_dir, 'source_train.token'))
+  #os.system('/bin/rm '+os.path.join(FLAGS.data_dir, 'source_train.token'))
   os.system('/bin/rm '+os.path.join(FLAGS.model_dir, '*'))
 
 if __name__ == '__main__':
