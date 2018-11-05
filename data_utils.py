@@ -18,17 +18,15 @@ WORD_SPLIT = re.compile(b"([.,!?\"':;)(])")
 DIGIT_RE = re.compile(br"\d")
 DU_RE = re.compile(b"\!")
 
-_PAD = b"PAD"
-_GO = b"GO"
-_EOS = b"EOS"
-_UNK = b"UNK"
+_BOS = b"__BOS__"
+_EOS = b"__EOS__"
+_UNK = b"__UNK__"
 
-_START_VOCAB = [_PAD, _GO, _EOS, _UNK]
+_START_VOCAB = [_BOS, _EOS, _UNK]
 
-PAD_ID = 0
-GO_ID = 1
-EOS_ID = 2
-UNK_ID = 3
+BOS_ID = 0
+EOS_ID = 1
+UNK_ID = 2
 
 src_vocab_size = FLAGS.src_vocab_size
 
@@ -184,20 +182,18 @@ def read_data(source_path, target_path, bucket):
           print("  reading data line %d" % counter)
           #print('source: ',source, 'target: ',target)
           #print('bucket: ',bucket)
- 
           sys.stdout.flush()
         source = source.split(' +++$+++ ')
         target = target.split(' +++$+++ ')
         source_ids = [int(x) for x in source[0].split()]
         target_ids = [int(x) for x in target[0].split()]
-        target_ids.append(EOS_ID)
 
         for bucket_id, (source_size, target_size) in enumerate(bucket):
           #if counter % 100000 == 0:
           #    print('bucket_id, (source_size, target_size): ',bucket_id, (source_size, target_size))
           #    print('len(source_ids): ',len(source_ids),
           #          ' len(target_ids): ',len(target_ids))
-          if len(source_ids) < source_size and len(target_ids) < target_size:
+          if len(source_ids) <= source_size and len(target_ids) <= target_size:
             data_set[bucket_id].append((source_ids, target_ids, source[1], target[1]))
             break
           #if bucket_id == 3: print('too long=======>',counter)
@@ -263,7 +259,7 @@ def split_train_val(source,target,buckets=buckets):
         for s,t in zip(src,trg):
             sl, tl = len(s.split()), len(t.split())
             for bucket_id, (source_size, target_size) in enumerate(buckets):         
-                if sl < source_size and tl < target_size:
+                if sl <= source_size and tl <= target_size:
                     data[bucket_id].append((s, t, sl, tl))
                     break
 

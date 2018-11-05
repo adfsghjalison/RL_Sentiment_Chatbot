@@ -32,13 +32,17 @@ def create_seq2seq(session, mode):
     print('FLAGS.debug: ',bool(FLAGS.debug))
       
   model = seq2seq_model.Seq2seq(mode)
-  
-  if FLAGS.mode == 'val_rl' or FLAGS.mode == 'RL':
+
+    
+  if FLAGS.mode == 'val_rl':
     ckpt = tf.train.get_checkpoint_state(FLAGS.model_rl_dir)
   else:
     ckpt = tf.train.get_checkpoint_state(FLAGS.model_pre_dir)
   
-  if ckpt:
+  if FLAGS.load != '':
+    print("Reading model from %s, mode: %s" % (FLAGS.load, FLAGS.mode))
+    model.saver.restore(session, FLAGS.load)
+  elif ckpt:
     print("Reading model from %s, mode: %s" % (ckpt.model_checkpoint_path, FLAGS.mode))
     model.saver.restore(session, ckpt.model_checkpoint_path)
   else:
@@ -60,6 +64,7 @@ def _output(output, trg_vocab_list):
 def train_MLE(): 
 
   data_utils.prepare_whole_data(FLAGS.data, FLAGS.source_data, FLAGS.target_data, FLAGS.src_vocab_size, FLAGS.trg_vocab_size)
+  _ , trg_vocab_list = data_utils.read_map(FLAGS.target_data + '.' + str(FLAGS.trg_vocab_size) + '.mapping')
 
   d_train = data_utils.read_data(FLAGS.source_data + '_train.token',FLAGS.target_data + '_train.token',buckets)
   d_valid = data_utils.read_data(FLAGS.source_data + '_val.token',FLAGS.target_data + '_val.token',buckets)
@@ -107,13 +112,13 @@ def train_MLE():
       # buckets_scale accumulated percentage
       bucket_id = min([i for i in range(len(train_buckets_scale))
                          if train_buckets_scale[i] > random_number])
-      encoder_input, decoder_input, weight = model.get_batch(d_train, bucket_id)
+      encoder_input, decoder_input, weight, en_s, de_s = model.get_batch(d_train, bucket_id, sen=True)
       #print('batch_size: ',model.batch_size)      ==> 64
       #print('batch_size: ',len(encoder_input[0])) ==> 64
       #print('batch_size: ',len(encoder_input))    ==> 15,50,...
       #print('batch_size: ',len(decoder_input))    ==> 15,50,... 
       #print('batch_size: ',len(weight))           ==> 15,50,...
-      loss_train, _ = model.run(sess, encoder_input, decoder_input, weight, bucket_id)
+      output, loss_train, _ = model.run(sess, encoder_input, decoder_input, weight, bucket_id)
       loss += loss_train / FLAGS.check_step
 
       #if step!=0 and step % FLAGS.sampling_decay_steps == 0:
@@ -121,14 +126,18 @@ def train_MLE():
       #  print('sampling_probability: ',sess.run(model.sampling_probability))
         
       if step % FLAGS.print_step == 0:
-        print('{} steps trained ...'.format(step))
+        print('Input :')
+        print(en_s[0].strip())
+        print('Output:')
+        print(_output(output[0], trg_vocab_list))
+        print('\n{} steps trained ...\n\n'.format(step))
 
       if step % FLAGS.check_step == 0:
-        print('Step %s, Training perplexity: %s, Learning rate: %s' % (step, math.exp(loss),
+        print('\nStep %s, Training perplexity: %s, Learning rate: %s' % (step, math.exp(loss),
                                   sess.run(model.learning_rate))) 
         for i in range(len(d_train)):
           encoder_input, decoder_input, weight = model.get_batch(d_valid, i)
-          loss_valid, _ = model.run(sess, encoder_input, decoder_input, weight, i, forward_only = True)
+          _, loss_valid, _ = model.run(sess, encoder_input, decoder_input, weight, i, forward_only = True)
           print('  Validation perplexity in bucket %s: %s' % (i, math.exp(loss_valid)))
         if len(loss_list) > 2 and loss > max(loss_list[-3:]):
           sess.run(model.learning_rate_decay)
@@ -142,7 +151,7 @@ def train_MLE():
 
         checkpoint_path = os.path.join(FLAGS.model_pre_dir, "MLE.ckpt")
         model.saver.save(sess, checkpoint_path, global_step = step)
-        print('Saving model at step %s' % step)
+        print('Saving model at step %s\n' % step)
       if step == FLAGS.sampling_global_step: break
 
 def val(mo):
@@ -177,11 +186,6 @@ def val(mo):
           print('    {}'.format(x.strip()))
           print('->  {}\n'.format(_output(y, trg_vocab_list)))
 
-def try_sen():
-  g3 = tf.Graph()
-  sess3 = tf.Session(graph = g3)
-  model_SA = main.create_model(sess3)
-  #main.test()
 
 def train_RL():
 
@@ -208,7 +212,7 @@ def train_RL():
     model_LM.batch_size = 1
 
   def LM(encoder_input, decoder_input, weight, bucket_id):
-    return model_LM.run(sess2, encoder_input, decoder_input, weight, bucket_id, forward_only = True)[1]
+    return model_LM.run(sess2, encoder_input, decoder_input, weight, bucket_id, forward_only = True)[0]
   # new reward function: sentiment score
   with g3.as_default():
     model_SA = main.create_model(sess3) 
@@ -240,6 +244,7 @@ def train_RL():
     
     # the same encoder_input for sampling batch_size times
     #encoder_input, decoder_input, weight = model.get_batch(d, bucket_id, rand = False)    
+
     encoder_input, decoder_input, weight, en_s, de_s = model.get_batch(d_train, bucket_id, sen=True)
     output, loss, _ = model.run(sess1, encoder_input, decoder_input, weight, bucket_id, X = LM, Y = SA)
    

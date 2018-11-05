@@ -31,7 +31,7 @@ class Seq2seq():
     self.size = FLAGS.hidden_size
     # dimension of words
     self.num_layers = FLAGS.num_layers
-    self.batch_size = FLAGS.batch_size
+    self.batch_size = FLAGS.batch_size if mode == 'RL' or mode == 'MLE' else 1
     self.learning_rate = tf.Variable(0.5, trainable=False)
     self.mode = mode
     self.dummy_reply = ["what ?", "yeah .", "you are welcome ! ! ! !"]
@@ -287,8 +287,8 @@ class Seq2seq():
       #optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
       for b in range(len(self.buckets)):
 
-        #scaled_loss = tf.multiply(self.losses[b], batch_reward)
-        #self.losses[b] = tf.reduce_mean(scaled_loss)
+        scaled_loss = tf.multiply(self.losses[b], batch_reward)
+        self.losses[b] = tf.reduce_mean(scaled_loss)
 
         gradients = tf.gradients(self.losses[b], tf.trainable_variables())
         clipped_gradients, _ = tf.clip_by_global_norm(gradients, 5.0)
@@ -310,8 +310,6 @@ class Seq2seq():
     for i in range(self.batch_size):
       if data_utils.EOS_ID in sentence_list[i]:
         sentence_list[i] = sentence_list[i][:sentence_list[i].index(data_utils.EOS_ID)]
-      if data_utils.PAD_ID in sentence_list[i]:
-        sentence_list[i] = sentence_list[i][:sentence_list[i].index(data_utils.PAD_ID)]
       sentence_temp = [tf.compat.as_str(self.src_vocab_list[output]) for output in sentence_list[i]]  
       sentence_list[i] = " ".join(word for word in sentence_temp)
     return sentence_list
@@ -348,11 +346,13 @@ class Seq2seq():
     #print('outputs: ',outputs,outputs[0].shape)
     r = 0.0
     # outputs已經project過(6258維)，看decoder_input的tokan_id(b)在output的softmax之機率高不高，越高reward越好。
+
     for logit, i in zip(outputs, b):
       #print('logit: ',logit,len(logit),logit[0].shape)
       #print('i: ',i)
       #print('r: ',np.log10(softmax(logit[0])[i]))
       r += np.log10(softmax(logit[0])[i])
+    r /= len(b)
     return r
 
   # this function is specify for training of Reinforcement Learning case
@@ -387,13 +387,13 @@ class Seq2seq():
 
     if self.mode == 'MLE':
       if forward_only:
-        output_feed = [self.losses[bucket_id], self.outputs[bucket_id]]
+        output_feed = [self.outputs[bucket_id], self.losses[bucket_id]]
         outputs = sess.run(output_feed, input_feed)
-        return outputs[0], outputs[1]
+        return outputs
       else:
-        output_feed = [self.losses[bucket_id], self.update[bucket_id]]
+        output_feed = [self.outputs[bucket_id], self.losses[bucket_id], self.update[bucket_id]]
         outputs = sess.run(output_feed, input_feed)
-        return outputs[0], outputs[1]
+        return outputs
 
     elif self.mode == 'TEST':
       output_feed = [self.outputs[bucket_id]]
@@ -432,34 +432,39 @@ class Seq2seq():
 
         r1 = -np.mean(temp_reward)
 
+        '''
+
         # reward 2: semantic coherence
         r_input = list(reversed([o[i] for o in encoder_inputs]))
-        if data_utils.PAD_ID in r_input:
-          r_input = r_input[:r_input.index(data_utils.PAD_ID)]
+        if data_utils.EOS_ID in r_input:
+          r_input = r_input[:r_input.index(data_utils.EOS_ID)]
+        
+        if r_input == []:
+          r_input = [data_utils.EOS_ID]
 
         r2 = self.prob(r_input, token_ids, X, bucket_id) / float(len(token_ids)) if len(token_ids) != 0 else 0
-
-        '''
 
         # reward 3: sentiment analysis score
         #print('self.vocablist:' ,len(self.trg_vocab_list))
         #print('token_ids: ',token_ids)
 
         word_token = [self.trg_vocab_list[token].decode('utf-8') for token in token_ids]
-        r3 = Y(word_token, np.array([len(token_ids)], dtype = np.int32))
+        r3 = Y(word_token, np.array([len(token_ids)], dtype = np.int32))[0]
         #r3 = r3 / 2 + 0.5
 
-        '''
-        print('r1: %s' % r1)
-        print('r2: %s' % r2)
-        print('r3: %s' % r3)
-        '''
         #reward[i] = 0.7 * r1 + 0.7 * r2 + r3
-        #reward[i] = 0 * r2 + r3
-        reward[i] = 1
+        #reward[i] = 3 * r2 + r3
+        reward[i] = r2 * 5 + r3
+        
+        #print('r1: %s' % r1)
+        #print('r2: %s' % r2)
+        #print('r3: %s' % r3)
+        #print('reward: %s\n' % reward[i])
+
       #print(reward)
       # advantage
       reward = reward - np.mean(reward)
+      #print(reward)
       _, decoder_inputs, target_weights = self.get_batch({bucket_id: new_data}, bucket_id, rand = False)
 
       # step 3: update seq2seq model
@@ -502,11 +507,11 @@ class Seq2seq():
       en_s_list.append(en_s)
       de_s_list.append(de_s)
 
-      encoder_pad = [data_utils.PAD_ID] * (encoder_size - len(encoder_input))
+      encoder_pad = [data_utils.EOS_ID] * (encoder_size - len(encoder_input))
       encoder_inputs.append(list(reversed(encoder_input + encoder_pad)))
 
-      decoder_pad = [data_utils.PAD_ID] * (decoder_size - len(decoder_input) - 1)
-      decoder_inputs.append([data_utils.GO_ID] + decoder_input + decoder_pad)
+      decoder_pad = [data_utils.EOS_ID] * (decoder_size - len(decoder_input) - 1)
+      decoder_inputs.append([data_utils.BOS_ID] + decoder_input + decoder_pad)
 
     batch_encoder_inputs, batch_decoder_inputs, batch_weights = [], [], []
 
@@ -524,7 +529,7 @@ class Seq2seq():
         # The corresponding target is decoder_input shifted by 1 forward.
         if length_idx < decoder_size - 1:
           target = decoder_inputs[batch_idx][length_idx + 1]
-        if length_idx == decoder_size - 1 or target == data_utils.PAD_ID:
+        if length_idx == decoder_size - 1 or target == data_utils.EOS_ID:
           batch_weight[batch_idx] = 0.0
       batch_weights.append(batch_weight)
 
@@ -534,5 +539,5 @@ class Seq2seq():
       return batch_encoder_inputs, batch_decoder_inputs, batch_weights
 
 if __name__ == '__main__':
+  test = Seq2seq(50, 100, 200, 300, 1, 128)
 
-  test = Seq2seq(50, 100, 200, 300, 1, 128) 

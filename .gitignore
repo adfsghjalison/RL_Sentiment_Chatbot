@@ -1,0 +1,10 @@
+data/
+corpus/
+model_pre/
+model_RL/
+sentiment_analysis/data/
+sentiment_analysis/model/
+output/
+*.pyc
+cc.zh.300.bin
+

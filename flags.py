@@ -10,9 +10,10 @@ tf.app.flags.DEFINE_string('data_name', 'NLPCC', 'directory of data')
 tf.app.flags.DEFINE_string('data_dir', 'data', 'directory of data')
 tf.app.flags.DEFINE_string('model_pre_dir', 'model_pre', 'directory of model')
 tf.app.flags.DEFINE_string('model_rl_dir', 'model_RL', 'directory of RL model')
+tf.app.flags.DEFINE_string('load', '', 'load model')
 
 tf.app.flags.DEFINE_string('mode', 'RL', 'MLE / RL / val_pre / val_rl / TEST')
-tf.app.flags.DEFINE_string('data', 'source', 'directory of data')
+tf.app.flags.DEFINE_string('data', 'chatbot', 'directory of data')
 tf.app.flags.DEFINE_string('source_data', 'x', 'directory of data')
 tf.app.flags.DEFINE_string('target_data', 'y', 'directory of data')
 
@@ -43,16 +44,19 @@ tf.app.flags.DEFINE_string('trg_word_seg', 'word', 'target word segmentation typ
 tf.app.flags.DEFINE_string('pretrain_vec', None, 'load pretrain word vector')
 tf.app.flags.DEFINE_boolean('pretrain_trainable', False, 'pretrain vec trainable or not')
 
+"""
+
 tf.app.flags.DEFINE_integer('print_step', '1', 'step interval of printing')
 tf.app.flags.DEFINE_integer('check_step', '2', 'step interval of saving model')
 tf.app.flags.DEFINE_integer('max_step', '6', 'max step')
-"""
-
-tf.app.flags.DEFINE_integer('print_step', '1000', 'step interval of printing')
-tf.app.flags.DEFINE_integer('check_step', '20000', 'step interval of saving model')
-tf.app.flags.DEFINE_integer('max_step', '100000', 'max step')
 
 """
+
+tf.app.flags.DEFINE_integer('print_step', '500', 'step interval of printing')
+tf.app.flags.DEFINE_integer('check_step', '1000', 'step interval of saving model')
+tf.app.flags.DEFINE_integer('max_step', '5000', 'max step')
+
+
 FLAGS = tf.app.flags.FLAGS
 
 FLAGS.model_pre_dir = os.path.join(FLAGS.model_pre_dir, 'model_pre_{}'.format(FLAGS.data_name))
@@ -70,10 +74,12 @@ FLAGS.data = os.path.join(FLAGS.data_dir, FLAGS.data)
 FLAGS.source_data = os.path.join(FLAGS.data_dir, FLAGS.source_data)
 FLAGS.target_data = os.path.join(FLAGS.data_dir, FLAGS.target_data)
 
+if 'val' in FLAGS.mode:
+  FLAGS.batch_size = 1
 
 # for data etl
 SEED = 112
-buckets = [(10, 10), (15, 15), (20, 20), (25, 25)]
+buckets = [(15, 15)]#[(10, 10), (15, 15), (20, 20), (25, 25)]
 split_ratio = 0.99
 
 # for inference filter dirty words
