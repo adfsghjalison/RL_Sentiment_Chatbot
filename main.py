@@ -7,14 +7,14 @@ import sys
 sys.path.append('sentiment_analysis/')
 import math
 from termcolor import colored
+from flags import FLAGS, SEED, buckets, replace_words, reset_prob 
+from utils import qulify_sentence
 
 import data_utils
 import seq2seq_model
 from seq2seq import bernoulli_sampling
 from sentiment_analysis import main
 from sentiment_analysis import utils
-from flags import FLAGS, SEED, buckets, replace_words, reset_prob 
-from utils import qulify_sentence
 
 # mode variable has three different mode:
 # 1. MLE
@@ -56,14 +56,14 @@ def _output(output, trg_vocab_list):
   # If there is an EOS symbol in outputs, cut them at that point.
   if data_utils.EOS_ID in outputs:
     outputs = outputs[:outputs.index(data_utils.EOS_ID)]
-  sys_reply = " ".join([tf.compat.as_str(trg_vocab_list[output]) for output in outputs])
-  #sys_reply = data_utils.sub_words(sys_reply)
-  #sys_reply = qulify_sentence(sys_reply)
+  if outputs == []:
+    outputs = ['.']
+  sys_reply = "".join([tf.compat.as_str(trg_vocab_list[output]) for output in outputs])
   return sys_reply
 
 def train_MLE(): 
 
-  data_utils.prepare_whole_data(FLAGS.data, FLAGS.source_data, FLAGS.target_data, FLAGS.src_vocab_size, FLAGS.trg_vocab_size)
+  data_utils.prepare_whole_data(FLAGS.data, FLAGS.data_test, FLAGS.source_data, FLAGS.target_data, FLAGS.src_vocab_size, FLAGS.trg_vocab_size)
   _ , trg_vocab_list = data_utils.read_map(FLAGS.target_data + '.' + str(FLAGS.trg_vocab_size) + '.mapping')
 
   d_train = data_utils.read_data(FLAGS.source_data + '_train.token',FLAGS.target_data + '_train.token',buckets)
@@ -137,7 +137,7 @@ def train_MLE():
                                   sess.run(model.learning_rate))) 
         for i in range(len(d_train)):
           encoder_input, decoder_input, weight = model.get_batch(d_valid, i)
-          _, loss_valid, _ = model.run(sess, encoder_input, decoder_input, weight, i, forward_only = True)
+          _, loss_valid = model.run(sess, encoder_input, decoder_input, weight, i, forward_only = True)
           print('  Validation perplexity in bucket %s: %s' % (i, math.exp(loss_valid)))
         if len(loss_list) > 2 and loss > max(loss_list[-3:]):
           sess.run(model.learning_rate_decay)
@@ -174,6 +174,9 @@ def val(mo):
     model = create_seq2seq(sess, 'TEST')
     
     loss_list = []
+    
+    cf = csv.writer(open(FLAGS.output, 'w'))
+    cf.writerow(['context', 'utterance'])    
 
     for bucket_id in range(len(buckets)):
       start = 0
@@ -183,9 +186,7 @@ def val(mo):
 
         output = model.run(sess, encoder_input, decoder_input, weight, bucket_id)
         for x, y in zip(en_s, output):
-          print('    {}'.format(x.strip()))
-          print('->  {}\n'.format(_output(y, trg_vocab_list)))
-
+          cf.writerow([x.strip(), _output(y, trg_vocab_list)])
 
 def train_RL():
 
@@ -364,7 +365,6 @@ def test():
       sentence = (' ').join([s for s in sentence])
 
 if __name__ == '__main__':
-  #try_sen()
   if FLAGS.mode == 'MLE':
     train_MLE()
   elif FLAGS.mode == 'RL':

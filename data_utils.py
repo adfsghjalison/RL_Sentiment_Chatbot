@@ -43,8 +43,8 @@ def tokenizer(sentence):
 # mode:[same|diff], to decide source and target share the same mapping or not
 def form_vocab_mapping(filename_1, filename_2, max_size_1, max_size_2, nltk_tokenizer=None, mode='diff'):
   
-  output_path = filename_1 + '.' + str(max_size_1) + '.mapping' 
-  output_path2 = filename_2 + '.' + str(max_size_2) + '.mapping' 
+  output_path = filename_1.replace('_train', '') + '.' + str(max_size_1) + '.mapping' 
+  output_path2 = filename_2.replace('_train', '') + '.' + str(max_size_2) + '.mapping' 
   max_sizes = (max_size_1,max_size_2)
   if gfile.Exists(output_path) and gfile.Exists(output_path2):
     print('Map file has already been formed!')
@@ -74,7 +74,7 @@ def form_vocab_mapping(filename_1, filename_2, max_size_1, max_size_2, nltk_toke
             else:
               vocab[word] = 1
         if mode == 'diff':
-          output_path = fil.name + '.' + str(max_sizes[i]) + '.mapping' 
+          output_path = fil.name.replace('_train', '') + '.' + str(max_sizes[i]) + '.mapping' 
           write_mapping(vocab,max_sizes[i],output_path)
           vocab = {}
       
@@ -148,22 +148,26 @@ def split_file(f, x, y):
   fx.close()
   fy.close()
 
-def prepare_whole_data(data, input_path_1, input_path_2, max_size_1, max_size_2, nltk_tokenizer = False, skip_to_token = False, mode='diff'):
+def prepare_whole_data(data, data_test, x, y, max_size_1, max_size_2, nltk_tokenizer = False, skip_to_token = False, mode='diff'):
 
-  if not gfile.Exists(input_path_1) or not gfile.Exists(input_path_1):
-    split_file(data, input_path_1, input_path_2)
+  for i, j in [(data, 'train'), (data_test, 'val')]:
+    if not gfile.Exists('{}_{}'.format(x, j)) or not gfile.Exists('{}_{}'.format(y, j)):
+      split_file(i, '{}_{}'.format(x, j), '{}_{}'.format(y, j))
+  """
   if not gfile.Exists(input_path_1+'_train') or not gfile.Exists(input_path_2+'_train'):
     split_train_val(input_path_1, input_path_2)
-  form_vocab_mapping(input_path_1, input_path_2, max_size_1, max_size_2, nltk_tokenizer, mode)
+  """
 
-  map_src_path = input_path_1 + '.' + str(max_size_1) + '.mapping'  
-  map_trg_path = input_path_2 + '.' + str(max_size_2) + '.mapping'  
+  form_vocab_mapping('{}_train'.format(x), '{}_train'.format(y), max_size_1, max_size_2, nltk_tokenizer, mode)
+
+  map_src_path = x + '.' + str(max_size_1) + '.mapping'  
+  map_trg_path = y + '.' + str(max_size_2) + '.mapping'  
   vocab_map_src , _ = read_map(map_src_path)
   vocab_map_trg , _ = read_map(map_trg_path)
-  files = {input_path_1+'_train': vocab_map_src,
-           input_path_1+'_val': vocab_map_src,
-           input_path_2+'_train': vocab_map_trg,
-           input_path_2+'_val': vocab_map_trg}
+  files = {x+'_train': vocab_map_src,
+           x+'_val': vocab_map_src,
+           y+'_train': vocab_map_trg,
+           y+'_val': vocab_map_trg}
   if not skip_to_token:
     for f, vocab_map in files.items():
       file_to_token(f , vocab_map, nltk_tokenizer)

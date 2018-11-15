@@ -34,7 +34,11 @@ class Seq2seq():
     self.batch_size = FLAGS.batch_size if mode == 'RL' or mode == 'MLE' else 1
     self.learning_rate = tf.Variable(0.5, trainable=False)
     self.mode = mode
-    self.dummy_reply = ["what ?", "yeah .", "you are welcome ! ! ! !"]
+    self.dummy_reply = [ "哈哈 ， 是啊 。", "怎麼 了 ?", "你 在 哪 ?" ]
+
+    self.r1 = FLAGS.r1
+    self.r2 = FLAGS.r2
+    self.r3 = FLAGS.r3
 
     # learning rate decay
     self.learning_rate_decay = self.learning_rate.assign(self.learning_rate * 0.99) 
@@ -295,7 +299,7 @@ class Seq2seq():
         self.update.append(optimizer.apply_gradients(zip(clipped_gradients, tf.trainable_variables())))
 
     # specify saver
-    self.saver = tf.train.Saver(max_to_keep = 5)
+    self.saver = tf.train.Saver(max_to_keep = 10)
 
   # token_vector: list [batch_size, vocab_size] of length max_length
   # return: list of length batch_size, each contain the list of the decoded sentence
@@ -424,15 +428,16 @@ class Seq2seq():
           token_ids = token_ids[:token_ids.index(data_utils.EOS_ID)]
         new_data.append(([], token_ids + [data_utils.EOS_ID], "", ""))
 
-        '''
         # in this case, X is language model score
         # reward 1: ease of answering
-        temp_reward = [self.prob(token_ids, data_utils.convert_to_token(tf.compat.as_bytes(sen), self.trg_vocab_dict,
-                       False) + [data_utils.EOS_ID], X, bucket_id)/float(len(sen)) for sen in self.dummy_reply]
+        temp_reward = [self.prob( token_ids, 
+                                  data_utils.convert_to_token(  tf.compat.as_bytes(sen),
+                                                                self.trg_vocab_dict, False) 
+                                                             + [data_utils.EOS_ID],
+                                  X, bucket_id)/float(len(sen)) for sen in self.dummy_reply]
 
         r1 = -np.mean(temp_reward)
 
-        '''
 
         # reward 2: semantic coherence
         r_input = list(reversed([o[i] for o in encoder_inputs]))
@@ -445,21 +450,11 @@ class Seq2seq():
         r2 = self.prob(r_input, token_ids, X, bucket_id) / float(len(token_ids)) if len(token_ids) != 0 else 0
 
         # reward 3: sentiment analysis score
-        #print('self.vocablist:' ,len(self.trg_vocab_list))
-        #print('token_ids: ',token_ids)
-
         word_token = [self.trg_vocab_list[token].decode('utf-8') for token in token_ids]
         r3 = Y(word_token, np.array([len(token_ids)], dtype = np.int32))[0]
-        #r3 = r3 / 2 + 0.5
 
-        #reward[i] = 0.7 * r1 + 0.7 * r2 + r3
-        #reward[i] = 3 * r2 + r3
-        reward[i] = r2 * 5 + r3
+        reward[i] = r1 * self.r1 + r2 * self.r2 + r3 * self.r3
         
-        #print('r1: %s' % r1)
-        #print('r2: %s' % r2)
-        #print('r3: %s' % r3)
-        #print('reward: %s\n' % reward[i])
 
       #print(reward)
       # advantage
