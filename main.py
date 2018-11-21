@@ -1,11 +1,8 @@
 import tensorflow as tf
 import numpy as np
 import json
-import re
-import os
-import sys 
+import re, os, sys, csv, math
 sys.path.append('sentiment_analysis/')
-import math
 from termcolor import colored
 from flags import FLAGS, SEED, buckets, replace_words, reset_prob 
 from utils import qulify_sentence
@@ -33,7 +30,6 @@ def create_seq2seq(session, mode):
       
   model = seq2seq_model.Seq2seq(mode)
 
-    
   if FLAGS.mode == 'val_rl':
     ckpt = tf.train.get_checkpoint_state(FLAGS.model_rl_dir)
   else:
@@ -156,41 +152,30 @@ def train_MLE():
 
 def val(mo):
 
-  d_valid = data_utils.read_data(FLAGS.source_data + '_val.token',FLAGS.target_data + '_val.token',buckets)
+  d_valid = data_utils.read_val_data(FLAGS.source_data + '_val.token',FLAGS.target_data + '_val.token',buckets)
+
   _ , trg_vocab_list = data_utils.read_map(FLAGS.target_data + '.' + str(FLAGS.trg_vocab_size) + '.mapping')
   
   print('Total document size of validation data: %s' % sum(len(l) for l in d_valid))
 
-  valid_bucket_sizes = [len(d_valid[b]) for b in range(len(d_valid))]
-  valid_total_size = float(sum(valid_bucket_sizes))
-  valid_buckets_scale = [sum(valid_bucket_sizes[:i + 1]) / valid_total_size
-                         for i in range(len(valid_bucket_sizes))]
-  print('valid_bucket_sizes: ',valid_bucket_sizes)
-  print('valid_total_size: ',valid_total_size)
-  print('valid_buckets_scale: ',valid_buckets_scale)
-
   with tf.Session() as sess:
     
     model = create_seq2seq(sess, 'TEST')
-    
     loss_list = []
     
-    cf = csv.writer(open(FLAGS.output, 'w'))
+    cf = csv.writer(open(FLAGS.output, 'w'), delimiter = '|')
     cf.writerow(['context', 'utterance'])    
 
-    for bucket_id in range(len(buckets)):
-      start = 0
-      while start < len(d_valid[bucket_id]):
-        encoder_input, decoder_input, weight, en_s, de_s = model.get_batch(d_valid, bucket_id, rand=False, initial_id=start, sen=True)
-        start += FLAGS.batch_size
-
-        output = model.run(sess, encoder_input, decoder_input, weight, bucket_id)
-        for x, y in zip(en_s, output):
-          cf.writerow([x.strip(), _output(y, trg_vocab_list)])
+    for i in range(len(d_valid)):
+      encoder_input, decoder_input, weight, en_s, de_s = model.get_one(d_valid, i, sen=True)
+      output = model.run(sess, encoder_input, decoder_input, weight, d_valid[i][0])
+      cf.writerow([''.join(en_s.strip().split()), _output(output[0], trg_vocab_list)])
+      if i % 1000 == 0:
+        print('Generate {} ...'.format(i))
 
 def train_RL():
 
-  data_utils.prepare_whole_data(FLAGS.data, FLAGS.source_data, FLAGS.target_data, FLAGS.src_vocab_size, FLAGS.trg_vocab_size)
+  data_utils.prepare_whole_data(FLAGS.data, FLAGS.data_test, FLAGS.source_data, FLAGS.target_data, FLAGS.src_vocab_size, FLAGS.trg_vocab_size)
   d_train = data_utils.read_data(FLAGS.source_data + '_train.token',FLAGS.target_data + '_train.token',buckets)
   #print(d_train[0][0])
 

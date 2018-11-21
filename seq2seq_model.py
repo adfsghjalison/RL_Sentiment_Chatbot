@@ -361,8 +361,8 @@ class Seq2seq():
 
   # this function is specify for training of Reinforcement Learning case
   def RL_readmap(self, src_map_path, trg_map_path):
-    _, self.src_vocab_list = data_utils.read_map(src_map_path)
-    _, self.trg_vocab_list = data_utils.read_map(trg_map_path)
+    self.src_vocab_dict, self.src_vocab_list = data_utils.read_map(src_map_path)
+    self.trg_vocab_dict, self.trg_vocab_list = data_utils.read_map(trg_map_path)
 
   def run(self, sess, encoder_inputs, decoder_inputs, target_weights,
           bucket_id, forward_only = False, X = None, Y = None):
@@ -532,6 +532,40 @@ class Seq2seq():
       return batch_encoder_inputs, batch_decoder_inputs, batch_weights, en_s_list, de_s_list
     else:
       return batch_encoder_inputs, batch_decoder_inputs, batch_weights
+
+  def get_one(self, data, n, sen=False):
+
+    encoder_inputs, decoder_inputs = [], []
+    bucket_id, encoder_input, decoder_input, en_s, de_s = data[n]
+
+    encoder_size, decoder_size = self.buckets[bucket_id]
+    
+    encoder_pad = [data_utils.EOS_ID] * (encoder_size - len(encoder_input))
+    encoder_inputs.append(list(reversed(encoder_input + encoder_pad)))
+
+    decoder_pad = [data_utils.EOS_ID] * (decoder_size - len(decoder_input) - 1)
+    decoder_inputs.append([data_utils.BOS_ID] + decoder_input + decoder_pad)
+
+    batch_encoder_inputs, batch_decoder_inputs, batch_weights = [], [], []
+
+    for length_idx in range(encoder_size):
+      batch_encoder_inputs.append(np.array([encoder_inputs[0][length_idx]], dtype = np.int32))
+
+    for length_idx in range(decoder_size):
+      batch_decoder_inputs.append(np.array([decoder_inputs[0][length_idx]], dtype = np.int32))
+
+      batch_weight = np.ones(1, dtype = np.float32)
+      if length_idx < decoder_size - 1:
+        target = decoder_inputs[0][length_idx + 1]
+      if length_idx == decoder_size - 1 or target == data_utils.EOS_ID:
+        batch_weight[0] = 0.0
+      batch_weights.append(batch_weight)
+
+    if sen:
+      return batch_encoder_inputs, batch_decoder_inputs, batch_weights, en_s, de_s
+    else:
+      return batch_encoder_inputs, batch_decoder_inputs, batch_weights
+
 
 if __name__ == '__main__':
   test = Seq2seq(50, 100, 200, 300, 1, 128)

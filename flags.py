@@ -7,6 +7,7 @@ import hickle as hkl
 #fasttext_hkl = '%sfasttext.hkl'%corpus_dir 
 
 tf.app.flags.DEFINE_string('data_name', 'NLPCC', 'directory of data')
+#tf.app.flags.DEFINE_string('data_name', 'BG', 'directory of data')
 tf.app.flags.DEFINE_string('data_dir', 'data', 'directory of data')
 tf.app.flags.DEFINE_string('model_pre_dir', 'model_pre', 'directory of model')
 tf.app.flags.DEFINE_string('model_rl_dir', 'model_RL', 'directory of RL model')
@@ -46,9 +47,9 @@ tf.app.flags.DEFINE_string('pretrain_vec', None, 'load pretrain word vector')
 tf.app.flags.DEFINE_boolean('pretrain_trainable', False, 'pretrain vec trainable or not')
 
 #reward
-tf.app.flags.DEFINE_float('r1', 0.0, 'r1 weight')
-tf.app.flags.DEFINE_float('r2', 0.0, 'r2 weight')
-tf.app.flags.DEFINE_float('r3', 0.0, 'r3 weight')
+tf.app.flags.DEFINE_float('r1', 0.4, 'r1 weight')
+tf.app.flags.DEFINE_float('r2', 0.3, 'r2 weight')
+tf.app.flags.DEFINE_float('r3', 0.3, 'r3 weight')
 
 tf.app.flags.DEFINE_string('output', 'output', 'output file')
 
@@ -56,20 +57,25 @@ tf.app.flags.DEFINE_string('output', 'output', 'output file')
 tf.app.flags.DEFINE_integer('print_step', '1', 'step interval of printing')
 tf.app.flags.DEFINE_integer('check_step', '2', 'step interval of saving model')
 tf.app.flags.DEFINE_integer('max_step', '6', 'max step')
-
 """
 
 tf.app.flags.DEFINE_integer('print_step', '500', 'step interval of printing')
 tf.app.flags.DEFINE_integer('check_step', '500', 'step interval of saving model')
 tf.app.flags.DEFINE_integer('max_step', '2000', 'max step')
 
-
 FLAGS = tf.app.flags.FLAGS
 
 FLAGS.model_pre_dir = os.path.join(FLAGS.model_pre_dir, 'model_pre_{}'.format(FLAGS.data_name))
 FLAGS.model_rl_dir = os.path.join(FLAGS.model_rl_dir, 'model_RL_{}_{}_{}_{}'.format(FLAGS.data_name, FLAGS.r1, FLAGS.r2, FLAGS.r3))
-FLAGS.output = os.path.join(FLAGS.output, 'output_NLPCC_RL_{}_{}_{}'.format(FLAGS.r1, FLAGS.r2, FLAGS.r3))
 
+if FLAGS.mode == 'val_pre':
+  FLAGS.output = os.path.join(FLAGS.output, 'output_{}_RL_pre'.format(FLAGS.data_name))
+elif FLAGS.mode == 'val_rl':
+  FLAGS.output = os.path.join(FLAGS.output, 'output_{}_RL_{}_{}_{}'.format(FLAGS.data_name, FLAGS.r1, FLAGS.r2, FLAGS.r3))
+
+if FLAGS.load != '':
+  FLAGS.output = '{}_{}'.format(FLAGS.output, FLAGS.load)
+  FLAGS.load = os.path.join(FLAGS.model_rl_dir, 'RL.ckpt-{}'.format(FLAGS.load))
 
 if not os.path.exists(FLAGS.model_pre_dir):
     print('create model dir: ', FLAGS.model_pre_dir)
@@ -89,7 +95,8 @@ if 'val' in FLAGS.mode:
 
 # for data etl
 SEED = 112
-buckets = [(5, 5), (10, 10), (15, 15)]#[(10, 10), (15, 15), (20, 20), (25, 25)]
+buckets = [(5, 5), (10, 10), (15, 15)]
+#buckets = [(5, 5), (10, 10)]
 split_ratio = 0.99
 
 # for inference filter dirty words

@@ -14,6 +14,7 @@ from .flags import FLAGS
 print(FLAGS)
 model_dir = FLAGS.model_dir
 data_dir = FLAGS.data_dir
+batch_size = FLAGS.batch_size_
 
 def sentence_cutter(sentence):
     sentence = [s for s in sentence]
@@ -127,7 +128,6 @@ def test():
 def generate_data_d_x(Model):
   vocab_map, _ = utils.read_map(os.path.join(data_dir, 'dict'))
   data = utils.read_data(os.path.join(data_dir, 'sentiment'), vocab_map, skip=False)
-  bat = FLAGS.batch_size
 
   f = open(os.path.join(data_dir, 'int_x'), 'w')
   H = 0.8
@@ -138,8 +138,8 @@ def generate_data_d_x(Model):
   cnt_h, cnt_l = 0, 0
 
   while start < num:
-    if start + bat < num:
-      encoder_input, encoder_length, S, X = Model.get_batch(data[start : start + bat], shuffle=False)
+    if start + batch_size < num:
+      encoder_input, encoder_length, S, X = Model.get_batch(data[start : start + batch_size], shuffle=False)
     else:
       encoder_input, encoder_length, S, X = Model.get_batch(data[start:], shuffle=False)
 
@@ -153,9 +153,9 @@ def generate_data_d_x(Model):
         f.write("{} +++$+++ {}\n".format(0, x))
         cnt_l += 1
 
-    if start % (FLAGS.batch_size*200) == 0:
+    if start % (batch_size*200) == 0:
       print ('\n\n-------------------{}--------------------\n\n'.format(start))
-    start += bat
+    start += batch_size
 
   f.close()
 
@@ -165,7 +165,6 @@ def generate_data_d_x(Model):
 def generate_data_f_x_y(Model, xy=True):
   vocab_map, _ = utils.read_map(os.path.join(data_dir, 'dict'))
   data = utils.read_data(os.path.join(data_dir, 'chatbot'), vocab_map, xy=xy, skip=False)
-  bat = FLAGS.batch_size
 
   f = open(os.path.join(data_dir, 'float_x_y'), 'w')
 
@@ -173,8 +172,8 @@ def generate_data_f_x_y(Model, xy=True):
   start = 0
 
   while start < num:
-    if start + bat < num:
-      encoder_input, encoder_length, X, Y = Model.get_batch(data[start : start + bat], shuffle=False, xy=xy)
+    if start + batch_size < num:
+      encoder_input, encoder_length, X, Y = Model.get_batch(data[start : start + batch_size], shuffle=False, xy=xy)
     else:
       encoder_input, encoder_length, X, Y = Model.get_batch(data[start:], shuffle=False, xy=xy)
 
@@ -182,9 +181,9 @@ def generate_data_f_x_y(Model, xy=True):
     for s, x, y in zip(score[0], X, Y):
       f.write("{} +++$+++ {} +++$+++ {}\n".format(round(s[0], 2), x[0], y))
 
-    if start % (FLAGS.batch_size*200) == 0:
+    if start % (batch_size*200) == 0:
       print ('\n\n-------------------{}--------------------\n\n'.format(start))
-    start += bat
+    start += batch_size
 
   f.close()
 

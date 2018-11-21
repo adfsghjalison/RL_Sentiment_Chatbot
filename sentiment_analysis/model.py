@@ -9,11 +9,11 @@ class discriminator():
   def __init__(self, args):
     self.vocab_size = args.vocab_size
     self.unit_size = args.unit_size
-    self.batch_size = args.batch_size
+    self.batch_size = args.batch_size_
     self.max_length = args.max_length
-    self.mode = args.mode
+    self.mode = args.mode_
     self.model_dir = args.model_dir
-    self.data_dir = args.data_dir
+    self.data_dir = args.data_dir_
     self.model_type = {
       'cnn': self.build_model_cnn,
       'rnn-last': self.build_model_rnn_last,

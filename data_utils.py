@@ -206,6 +206,38 @@ def read_data(source_path, target_path, bucket):
 
   return data_set
 
+def read_val_data(source_path, target_path, bucket):
+
+  data_set = []
+  with tf.gfile.GFile(source_path, mode="r") as source_file:
+    with tf.gfile.GFile(target_path, mode="r") as target_file:
+      
+      source, target = source_file.readline(), target_file.readline()
+      counter = 0
+      while source and target:
+        counter += 1
+        if counter % 100000 == 0:
+          print("  reading data line %d" % counter)
+          sys.stdout.flush()
+        source = source.split(' +++$+++ ')
+        target = target.split(' +++$+++ ')
+        source_ids = [int(x) for x in source[0].split()]
+        target_ids = [int(x) for x in target[0].split()]
+
+        for bucket_id, (source_size, target_size) in enumerate(bucket):
+          #if counter % 100000 == 0:
+          #    print('bucket_id, (source_size, target_size): ',bucket_id, (source_size, target_size))
+          #    print('len(source_ids): ',len(source_ids),
+          #          ' len(target_ids): ',len(target_ids))
+          if len(source_ids) <= source_size and len(target_ids) <= target_size:
+            data_set.append((bucket_id, source_ids, target_ids, source[1], target[1]))
+            break
+          #if bucket_id == 3: print('too long=======>',counter)
+
+        source, target = source_file.readline(), target_file.readline()
+
+  return data_set
+
 # Read token data from tokenized data
 def read_token_data(file_path):
   token_path = file_path + '.token'
