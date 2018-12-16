@@ -1,11 +1,11 @@
-# Seq2seq Chatbot With Deep Reinforcement Learning
+# Style Chatbot With Deep Reinforcement Learning
 
 Train the conventional seq2seq model using deep reinforcement learning.
 This project is aimed to make Chinese chatbot responses more positive.
 
 - Reward Function:
-	- Sentiment Analysis Score: Trying make chatbot's response positive.
 	- Coherence Score: To make response suitable for the users' input.
+	- Sentiment Analysis Score: Trying make chatbot's response positive.
 
 ## Prerequisites
 1. Python packages:
@@ -71,20 +71,21 @@ Simply run:
 `python run.py --mode TEST`
 
 ### Important Hyperparameters of the flags.py
-`--vocab_size`: the vocabulary size of the input  
-`--hidden_size`: number of units of hidden layer  
-`--num_layers`: numbers of the layer  
-`--batch_size`: batch size  
-`--mode`: mode of the seq2seq model (MLE, RL, TEST)  
-`--source_data`: the path of the source file  
-`--target_data`: the path of the target file  
-`--model_pre_dir`: directory of the pre-trained seq2seq model  
-`--model_rl_dir`: direcory of the reinforcement learning seq2seq model  
-`--check_step`: step interval of saving model  
+`data_name` : database name  
+`vocab_size`: the vocabulary size of the input  
+`hidden_size`: number of units of hidden layer  
+`num_layers`: numbers of the layer  
+`batch_size`: batch size  
+`mode`: mode of the seq2seq model (MLE, RL, TEST)  
+`source_data`: the path of the source file  
+`target_data`: the path of the target file  
+`model_pre_dir`: directory of the pre-trained seq2seq model  
+`model_rl_dir`: direcory of the reinforcement learning seq2seq model  
+`check_step`: step interval of saving model  
 
-`--r1`: weight of reward 1  
-`--r2`: weight of reward 2  
-`--r3`: weight of reward 3  
+`r1`: weight of reward 1  
+`r2`: weight of reward 2  
+`r3`: weight of reward 3  
 
 ## File in this project
 
