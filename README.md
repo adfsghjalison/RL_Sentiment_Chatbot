@@ -82,10 +82,9 @@ Simply run:
 `--model_rl_dir`: direcory of the reinforcement learning seq2seq model  
 `--check_step`: step interval of saving model  
 
-`--r1`: weight of reward 1
-`--r2`: weight of reward 2
-`--r3`: weight of reward 3
-
+`--r1`: weight of reward 1  
+`--r2`: weight of reward 2  
+`--r3`: weight of reward 3  
 
 ## File in this project
 
