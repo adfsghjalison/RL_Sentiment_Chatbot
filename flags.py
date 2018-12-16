@@ -6,8 +6,8 @@ import hickle as hkl
 #fasttext_model = './cc.zh.300.bin'
 #fasttext_hkl = '%sfasttext.hkl'%corpus_dir 
 
-tf.app.flags.DEFINE_string('data_name', 'NLPCC', 'directory of data')
-#tf.app.flags.DEFINE_string('data_name', 'BG', 'directory of data')
+#tf.app.flags.DEFINE_string('data_name', 'NLPCC', 'directory of data')
+tf.app.flags.DEFINE_string('data_name', 'BG', 'directory of data')
 tf.app.flags.DEFINE_string('data_dir', 'data', 'directory of data')
 tf.app.flags.DEFINE_string('model_pre_dir', 'model_pre', 'directory of model')
 tf.app.flags.DEFINE_string('model_rl_dir', 'model_RL', 'directory of RL model')
@@ -95,8 +95,8 @@ if 'val' in FLAGS.mode:
 
 # for data etl
 SEED = 112
-buckets = [(5, 5), (10, 10), (15, 15)]
-#buckets = [(5, 5), (10, 10)]
+#buckets = [(5, 5), (10, 10), (15, 15)]
+buckets = [(5, 5), (10, 10)]
 split_ratio = 0.99
 
 # for inference filter dirty words

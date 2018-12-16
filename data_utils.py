@@ -153,10 +153,6 @@ def prepare_whole_data(data, data_test, x, y, max_size_1, max_size_2, nltk_token
   for i, j in [(data, 'train'), (data_test, 'val')]:
     if not gfile.Exists('{}_{}'.format(x, j)) or not gfile.Exists('{}_{}'.format(y, j)):
       split_file(i, '{}_{}'.format(x, j), '{}_{}'.format(y, j))
-  """
-  if not gfile.Exists(input_path_1+'_train') or not gfile.Exists(input_path_2+'_train'):
-    split_train_val(input_path_1, input_path_2)
-  """
 
   form_vocab_mapping('{}_train'.format(x), '{}_train'.format(y), max_size_1, max_size_2, nltk_tokenizer, mode)
 
