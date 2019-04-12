@@ -4,9 +4,8 @@ import json
 import re, os, sys, csv, math
 sys.path.append('sentiment_analysis/')
 from termcolor import colored
-from flags import FLAGS, SEED, buckets, replace_words, reset_prob 
-from utils import qulify_sentence
-
+from flags import FLAGS, buckets#, SEED, replace_words, reset_prob 
+#from utils import qulify_sentence
 import data_utils
 import seq2seq_model
 from seq2seq import bernoulli_sampling
@@ -59,6 +58,7 @@ def _output(output, trg_vocab_list):
 
 def train_MLE(): 
 
+  print('start')
   data_utils.prepare_whole_data(FLAGS.data, FLAGS.data_test, FLAGS.source_data, FLAGS.target_data, FLAGS.src_vocab_size, FLAGS.trg_vocab_size)
   _ , trg_vocab_list = data_utils.read_map(FLAGS.target_data + '.' + str(FLAGS.trg_vocab_size) + '.mapping')
 
@@ -350,6 +350,7 @@ def test():
       sentence = (' ').join([s for s in sentence])
 
 if __name__ == '__main__':
+  print('@@')
   if FLAGS.mode == 'MLE':
     train_MLE()
   elif FLAGS.mode == 'RL':

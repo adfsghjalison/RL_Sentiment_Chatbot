@@ -4,7 +4,7 @@ from __future__ import division
 import re
 import sys
 #import nltk
-from flags import buckets, split_ratio, SEED, replace_words, FLAGS
+from flags import FLAGS, buckets#, split_ratio, SEED, replace_words
 import jieba
 import opencc
 import numpy as np
@@ -136,6 +136,7 @@ def file_to_token(file_path, vocab_map, nltk_tokenizer):
           token_ids = convert_to_token(tf.compat.as_bytes(line), vocab_map, nltk_tokenizer)
 
           output_file.write("{} +++$+++ {}\n".format(" ".join([str(tok) for tok in token_ids]), line.decode()))
+    os.system('rm '+file_path)
 
 def split_file(f, x, y):
   fx = open(x, 'w')

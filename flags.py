@@ -7,15 +7,14 @@ import hickle as hkl
 #fasttext_hkl = '%sfasttext.hkl'%corpus_dir 
 
 #tf.app.flags.DEFINE_string('data_name', 'NLPCC', 'directory of data')
-tf.app.flags.DEFINE_string('data_name', 'BG', 'directory of data')
+tf.app.flags.DEFINE_string('data_name', 'CN', 'directory of data')
 tf.app.flags.DEFINE_string('data_dir', 'data', 'directory of data')
-tf.app.flags.DEFINE_string('model_pre_dir', 'model_pre', 'directory of model')
-tf.app.flags.DEFINE_string('model_rl_dir', 'model_RL', 'directory of RL model')
+tf.app.flags.DEFINE_string('model_dir', 'model', 'directory of model')
 tf.app.flags.DEFINE_string('load', '', 'load model')
 
-tf.app.flags.DEFINE_string('mode', 'RL', 'MLE / RL / val_pre / val_rl / TEST')
-tf.app.flags.DEFINE_string('data', 'chatbot', 'directory of data')
-tf.app.flags.DEFINE_string('data_test', 'source_test', 'directory of data')
+tf.app.flags.DEFINE_string('mode', 'MLE', 'MLE / RL / val_pre / val_rl / TEST')
+tf.app.flags.DEFINE_string('data', 'train', 'directory of data')
+tf.app.flags.DEFINE_string('data_test', 'test', 'directory of data')
 tf.app.flags.DEFINE_string('source_data', 'x', 'directory of data')
 tf.app.flags.DEFINE_string('target_data', 'y', 'directory of data')
 
@@ -65,8 +64,7 @@ tf.app.flags.DEFINE_integer('max_step', '2000', 'max step')
 
 FLAGS = tf.app.flags.FLAGS
 
-FLAGS.model_pre_dir = os.path.join(FLAGS.model_pre_dir, 'model_pre_{}'.format(FLAGS.data_name))
-FLAGS.model_rl_dir = os.path.join(FLAGS.model_rl_dir, 'model_RL_{}_{}_{}_{}'.format(FLAGS.data_name, FLAGS.r1, FLAGS.r2, FLAGS.r3))
+FLAGS.model_dir = os.path.join(FLAGS.model_dir, 'model_{}'.format(FLAGS.data_name))
 
 if FLAGS.mode == 'val_pre':
   FLAGS.output = os.path.join(FLAGS.output, 'output_{}_RL_pre'.format(FLAGS.data_name))
@@ -77,12 +75,9 @@ if FLAGS.load != '':
   FLAGS.output = '{}_{}'.format(FLAGS.output, FLAGS.load)
   FLAGS.load = os.path.join(FLAGS.model_rl_dir, 'RL.ckpt-{}'.format(FLAGS.load))
 
-if not os.path.exists(FLAGS.model_pre_dir):
-    print('create model dir: ', FLAGS.model_pre_dir)
-    os.mkdir(FLAGS.model_pre_dir)
-if not os.path.exists(FLAGS.model_rl_dir):
-    print('create model RL dir: ', FLAGS.model_rl_dir)
-    os.mkdir(FLAGS.model_rl_dir)
+if not os.path.exists(FLAGS.model_dir):
+    print('create model dir: ', FLAGS.model_dir)
+    os.mkdir(FLAGS.model_dir)
 
 FLAGS.data_dir = os.path.join(FLAGS.data_dir, 'data_{}'.format(FLAGS.data_name))
 FLAGS.data = os.path.join(FLAGS.data_dir, FLAGS.data)
@@ -97,11 +92,7 @@ if 'val' in FLAGS.mode:
 SEED = 112
 #buckets = [(5, 5), (10, 10), (15, 15)]
 buckets = [(5, 5), (10, 10)]
-split_ratio = 0.99
-
-# for inference filter dirty words
-with open('replace_words.json','r') as f:
-    replace_words = json.load(f)
+#split_ratio = 0.99
 
 # for reset schedule sampling probability
 reset_prob = 1.0
